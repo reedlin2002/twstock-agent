@@ -17,73 +17,6 @@
 - 將整理後的結構化資料交給 AI 產生分析摘要
 - 顯示價格圖、均線、籌碼圖、進出場區間、停損與風險提醒
 
-## 怎麼用？
-
-### 1. 安裝依賴
-
-```bash
-npm install
-```
-
-### 2. 建立環境變數
-
-建立 `.env.local`，填入你的 AI API 設定。前端直接讀取 Vite 環境變數時，請使用 `VITE_` 前綴：
-
-```env
-VITE_OPENROUTER_API_KEY=your_openrouter_api_key
-VITE_AI_MODEL=openai/gpt-oss-120b:free
-VITE_AI_ENDPOINT=https://openrouter.ai/api/v1/chat/completions
-VITE_OPENROUTER_APP_TITLE=Taiwan Stock Agent
-
-# 選填：開發伺服器代理 FinMind 資料時使用
-FINMIND_TOKEN=your_finmind_token
-```
-
-### 3. 啟動開發版
-
-```bash
-npm run dev
-```
-
-開啟終端機顯示的本機網址，通常是：
-
-```text
-http://127.0.0.1:5173
-```
-
-### 4. 查詢股票
-
-在搜尋框輸入股票代號或名稱，例如：
-
-- `2330`
-- `台積電 2330`
-- `2317`
-- `聯發科 2454`
-
-查詢後會看到：
-
-- 股價走勢與 MA20 / MA60
-- 趨勢條件檢查表
-- 進場、突破、停損、停利區間
-- 法人買賣超與融資融券變化
-- AI 整理的基本面、技術面、籌碼面、產業與風險摘要
-
-### 5. 建置正式版
-
-```bash
-npm run build
-npm run preview
-```
-
-### 6. Android App
-
-專案已整合 Capacitor，可輸出 Android 專案：
-
-```bash
-npm run android:apk
-```
-
-此指令會先建置 Web App，再同步到 Android 專案並開啟 Android Studio。
 
 ## 產品優勢
 
@@ -102,10 +35,6 @@ App 會先抓取價格與籌碼資料，再由本地程式計算技術指標，�
 ### 4. 同時支援 Web 與行動端
 
 前端使用 React + Vite，行動端使用 Capacitor 包裝，可快速轉成 Android App。
-
-### 5. 保留 Python 報告產生器
-
-除了 Web App，本專案也提供 `python/taiwan_stock_agent.py`，可使用 yfinance、pandas、numpy、plotly 產生獨立 HTML 技術分析報告，適合離線研究或批次產出。
 
 ## 使用了哪些股票分析技術？
 
@@ -199,8 +128,7 @@ AI 報告不是直接把股票代號丟給模型，而是採用資料驅動流�
 - Capacitor 8：Android 行動端包裝
 - Yahoo Finance API：價格資料
 - FinMind API：台股籌碼與股票清單
-- OpenRouter / OpenAI-compatible API：AI 分析生成
-- Python 分析器：yfinance、pandas、numpy、plotly
+- AI 分析生成
 
 ## 專案結構
 
