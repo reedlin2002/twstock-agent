@@ -1,0 +1,613 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>台股分析 Agent 資料來源與 AI Prompt 說明</title>
+    <style>
+      :root {
+        --ink: #15120e;
+        --panel: #1e1a15;
+        --panel2: #2a241d;
+        --line: #3a3025;
+        --text: #f3ebda;
+        --dim: #b7ac97;
+        --faint: #7e7464;
+        --gold: #e2a636;
+        --red: #e0413c;
+        --green: #26a269;
+        --blue: #5aa9ff;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--ink);
+        color: var(--text);
+        font-family: "Microsoft JhengHei", "Noto Sans TC", system-ui, sans-serif;
+        line-height: 1.7;
+      }
+
+      main {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 32px 18px 64px;
+      }
+
+      h1,
+      h2,
+      h3 {
+        line-height: 1.25;
+        margin: 0;
+      }
+
+      h1 {
+        font-size: 30px;
+        margin-bottom: 8px;
+      }
+
+      h2 {
+        font-size: 22px;
+        margin: 34px 0 14px;
+        color: var(--gold);
+      }
+
+      h3 {
+        font-size: 17px;
+        margin: 22px 0 8px;
+      }
+
+      p {
+        margin: 8px 0;
+        color: var(--dim);
+      }
+
+      .lead {
+        color: var(--dim);
+        margin-bottom: 20px;
+      }
+
+      .summary {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        margin: 18px 0 28px;
+      }
+
+      .box,
+      section,
+      .prompt {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+      }
+
+      .box {
+        padding: 14px 16px;
+      }
+
+      .box b {
+        display: block;
+        color: var(--text);
+        margin-bottom: 4px;
+      }
+
+      section {
+        padding: 18px;
+        margin-top: 14px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 12px;
+        overflow: hidden;
+        border-radius: 8px;
+      }
+
+      th,
+      td {
+        border: 1px solid var(--line);
+        padding: 10px 12px;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        background: var(--panel2);
+        color: var(--gold);
+        white-space: nowrap;
+      }
+
+      td {
+        color: var(--dim);
+      }
+
+      code,
+      pre {
+        font-family: "SF Mono", Consolas, "Liberation Mono", monospace;
+      }
+
+      code {
+        color: #f0d89a;
+      }
+
+      pre {
+        margin: 10px 0 0;
+        padding: 14px;
+        background: #11100d;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        color: #e9dfcc;
+        overflow: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-size: 12.5px;
+        line-height: 1.6;
+      }
+
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: var(--panel2);
+        color: var(--dim);
+        padding: 2px 9px;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+
+      .ai {
+        color: var(--gold);
+      }
+
+      .code {
+        color: var(--blue);
+      }
+
+      .static {
+        color: var(--green);
+      }
+
+      .warn {
+        border-left: 4px solid var(--red);
+        padding: 12px 14px;
+        background: rgba(224, 65, 60, 0.08);
+        color: #ffd9d7;
+        border-radius: 8px;
+      }
+
+      ul {
+        margin: 8px 0 0;
+        padding-left: 20px;
+        color: var(--dim);
+      }
+
+      li {
+        margin: 4px 0;
+      }
+
+      @media (max-width: 760px) {
+        .summary {
+          grid-template-columns: 1fr;
+        }
+
+        th,
+        td {
+          display: block;
+          width: 100%;
+        }
+
+        th {
+          border-bottom: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>台股分析 Agent 資料來源與 AI Prompt 說明</h1>
+      <p class="lead">
+        本文件對應 <code>taiwan-stock-agent-pro.jsx</code> 與 <code>vite.config.js</code>。
+        重點是區分：哪些畫面是程式抓資料與計算出來，哪些文字是 AI 根據已提供資料生成。
+      </p>
+
+      <div class="summary">
+        <div class="box">
+          <b>主資料來源</b>
+          <span class="tag code">Yahoo Finance chart</span>
+          <p>股價 OHLCV 日線資料，透過本機 <code>/api/yahoo-price</code> proxy 取得。</p>
+        </div>
+        <div class="box">
+          <b>補充資料來源</b>
+          <span class="tag code">FinMind</span>
+          <p>法人買賣超、融資融券。拿不到時不阻止技術分析，只會降低籌碼資訊完整度。</p>
+        </div>
+        <div class="box">
+          <b>AI 用途</b>
+          <span class="tag ai">OpenRouter</span>
+          <p>AI 不自行抓資料，只根據 <code>providedData</code> 白話解讀並輸出固定欄位。</p>
+        </div>
+      </div>
+
+      <p class="warn">
+        注意：檔案中仍保留舊的 <code>SYSTEM_PROMPT</code> 常數，但目前搜尋流程實際使用的是
+        <code>LOCAL_DATA_SYSTEM_PROMPT</code>。也就是目前版本不是讓 AI 用 web search 抓資料。
+      </p>
+
+      <h2>整體流程</h2>
+      <section>
+        <ol>
+          <li>使用者輸入股票代號或點快速鍵，例如 <code>2330</code>。</li>
+          <li>前端用 <code>resolveTicker()</code> 解析股票代號；沒有代號就停止，避免 AI 猜資料。</li>
+          <li>前端呼叫 <code>loadFinmind(code)</code>，實際會同時抓 Yahoo Finance 股價、FinMind 法人、FinMind 融資融券。</li>
+          <li>Yahoo Finance 股價經 <code>processFinmind()</code> 標準化，再由 <code>computeTA()</code> 算技術指標。</li>
+          <li>前端用 <code>buildProvidedData()</code> 壓成 AI 可讀 JSON。</li>
+          <li>前端呼叫 <code>/api/analyze</code>，Vite proxy 轉到 OpenRouter。</li>
+          <li>AI 回傳固定欄位文字，前端用 <code>parseReport()</code> 拆成畫面卡片。</li>
+        </ol>
+      </section>
+
+      <h2>每個畫面區塊來源</h2>
+      <section>
+        <table>
+          <thead>
+            <tr>
+              <th>畫面區塊</th>
+              <th>來源</th>
+              <th>是否 AI 生成</th>
+              <th>說明</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>頁首標題、紅綠圖例</td>
+              <td>前端 JSX 靜態文字與 CSS</td>
+              <td><span class="static">否</span></td>
+              <td>純 UI，沒有 API 或 AI。</td>
+            </tr>
+            <tr>
+              <td>搜尋框、快速股票按鈕</td>
+              <td><code>EXAMPLES</code> 常數、使用者輸入</td>
+              <td><span class="static">否</span></td>
+              <td>快速鍵目前是台積電、鴻海、聯發科、台達電、長榮、中華電等代號。</td>
+            </tr>
+            <tr>
+              <td>Loading / Error / Empty 狀態</td>
+              <td><code>LOAD_MSGS</code> 與 React state</td>
+              <td><span class="static">否</span></td>
+              <td>載入文案和錯誤訊息是前端控制，不是 AI 生成。</td>
+            </tr>
+            <tr>
+              <td>股價走勢圖</td>
+              <td><code>/api/yahoo-price</code> → Yahoo Finance chart</td>
+              <td><span class="code">否，程式資料</span></td>
+              <td>Vite proxy 嘗試 <code>{code}.TW</code>，不足 60 筆再試 <code>{code}.TWO</code>。前端取最近 150 筆畫收盤價、MA20、MA60。</td>
+            </tr>
+            <tr>
+              <td>目前狀態卡片</td>
+              <td><code>computeTA()</code></td>
+              <td><span class="code">否，程式計算</span></td>
+              <td>依股價、均線、量、KD、MACD、RSI 判斷 <code>go / wait / neutral / avoid</code>，文字 verdict 也是程式內建規則。</td>
+            </tr>
+            <tr>
+              <td>收盤 / 季線 / KD / RSI 數字</td>
+              <td><code>computeTA()</code></td>
+              <td><span class="code">否，程式計算</span></td>
+              <td>收盤、MA60、KD K/D、RSI 皆由 Yahoo 日線 OHLCV 計算。</td>
+            </tr>
+            <tr>
+              <td>趨勢結構檢查表</td>
+              <td><code>ta.trend</code></td>
+              <td><span class="code">否，程式計算</span></td>
+              <td>五個條件：站上 MA60/MA120、MA20 &gt; MA60 &gt; MA120、MA240 上彎、距 52 週高點不遠、高於 52 週低點。</td>
+            </tr>
+            <tr>
+              <td>進場訊號檢查表</td>
+              <td><code>ta.trigger</code></td>
+              <td><span class="code">否，程式計算</span></td>
+              <td>近 20 日內檢查 KD 黃金交叉、站上季線、帶量突破前高、MACD DIF 上穿 DEA。</td>
+            </tr>
+            <tr>
+              <td>停損參考區</td>
+              <td><code>computeTA()</code></td>
+              <td><span class="code">否，程式計算</span></td>
+              <td>包含近 20 日低點、MA60、收盤價 -8% 參考，不是 AI 給價。</td>
+            </tr>
+            <tr>
+              <td>法人籌碼圖</td>
+              <td><code>/api/finmind</code> → FinMind institutional dataset</td>
+              <td><span class="code">否，程式資料</span></td>
+              <td>三大法人買賣超依日期彙總，圖表顯示近 20 筆資料。</td>
+            </tr>
+            <tr>
+              <td>外資 / 投信 / 自營近 5 日</td>
+              <td><code>processFinmind()</code></td>
+              <td><span class="code">否，程式計算</span></td>
+              <td>由 FinMind 法人資料計算近 5 日合計張數。</td>
+            </tr>
+            <tr>
+              <td>融資餘額 / 融券餘額 / 近 5 日增減</td>
+              <td><code>/api/finmind</code> → FinMind margin dataset</td>
+              <td><span class="code">否，程式計算</span></td>
+              <td>取最新一筆與約 5 筆前相比，算融資融券變化。</td>
+            </tr>
+            <tr>
+              <td>公司摘要 SNAPSHOT</td>
+              <td>AI 欄位 <code>@@SNAPSHOT@@</code></td>
+              <td><span class="ai">是</span></td>
+              <td>AI 根據 providedData 的價格、均線、籌碼資料整理白話摘要。</td>
+            </tr>
+            <tr>
+              <td>基本面 FUNDAMENTAL</td>
+              <td>AI 欄位 <code>@@FUNDAMENTAL@@</code></td>
+              <td><span class="ai">是，但受限制</span></td>
+              <td>目前 providedData 沒有財報、營收、估值，所以 prompt 要求 AI 寫「資料未包含，不能猜」。</td>
+            </tr>
+            <tr>
+              <td>技術面 TECHNICAL</td>
+              <td>AI 欄位 <code>@@TECHNICAL@@</code></td>
+              <td><span class="ai">是</span></td>
+              <td>AI 根據程式算好的 technical 與 priceSeries 做白話解讀。</td>
+            </tr>
+            <tr>
+              <td>籌碼面 CHIPS</td>
+              <td>AI 欄位 <code>@@CHIPS@@</code></td>
+              <td><span class="ai">是</span></td>
+              <td>AI 根據 providedData.chips 與 margin 解讀；資料缺失時不能編造。</td>
+            </tr>
+            <tr>
+              <td>消息面 NEWS</td>
+              <td>AI 欄位 <code>@@NEWS@@</code></td>
+              <td><span class="ai">是，但受限制</span></td>
+              <td>目前沒有新聞資料輸入，因此 prompt 要求不能猜測。</td>
+            </tr>
+            <tr>
+              <td>產業地位 INDUSTRY</td>
+              <td>AI 欄位 <code>@@INDUSTRY@@</code></td>
+              <td><span class="ai">是，但受限制</span></td>
+              <td>目前沒有產業資料輸入，因此 prompt 要求不能猜測。</td>
+            </tr>
+            <tr>
+              <td>買點判讀 BUYPOINT</td>
+              <td>AI 欄位 <code>@@BUYPOINT@@</code></td>
+              <td><span class="ai">是</span></td>
+              <td>AI 依 providedData 和 Weinstein / Minervini / O'Neil 原則做描述，不可喊買賣或給目標價。</td>
+            </tr>
+            <tr>
+              <td>風險提示 RISKS</td>
+              <td>AI 欄位 <code>@@RISKS@@</code></td>
+              <td><span class="ai">是</span></td>
+              <td>AI 用 <code>|</code> 分隔三個風險，前端解析成列表。</td>
+            </tr>
+            <tr>
+              <td>資料註記 DATANOTE</td>
+              <td>AI 欄位 <code>@@DATANOTE@@</code></td>
+              <td><span class="ai">是</span></td>
+              <td>AI 說明資料來源、日期範圍與限制。</td>
+            </tr>
+            <tr>
+              <td>頁尾免責聲明</td>
+              <td>前端 JSX 靜態文字</td>
+              <td><span class="static">否</span></td>
+              <td>固定顯示研究與教育用途，不構成投資建議。</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <h2>資料 API 怎麼來</h2>
+      <section>
+        <h3>1. Yahoo Finance 股價</h3>
+        <p>前端呼叫：</p>
+        <pre>GET /api/yahoo-price?code=2330&amp;range=2y&amp;interval=1d</pre>
+        <p>Vite proxy 轉向：</p>
+        <pre>https://query1.finance.yahoo.com/v8/finance/chart/2330.TW?range=2y&amp;interval=1d&amp;events=history&amp;includeAdjustedClose=true</pre>
+        <p>如果 <code>2330.TW</code> 不足 60 筆，會再試 <code>2330.TWO</code>。</p>
+
+        <h3>2. FinMind 法人籌碼與融資融券</h3>
+        <p>前端呼叫：</p>
+        <pre>GET /api/finmind?dataset=TaiwanStockInstitutionalInvestorsBuySell&amp;data_id=2330&amp;start_date=YYYY-MM-DD
+GET /api/finmind?dataset=TaiwanStockMarginPurchaseShortSale&amp;data_id=2330&amp;start_date=YYYY-MM-DD</pre>
+        <p>Vite proxy 轉向：</p>
+        <pre>https://api.finmindtrade.com/api/v4/data</pre>
+        <p><code>FINMIND_TOKEN</code> 是可選的；沒有 token 時仍會嘗試公開資料。</p>
+
+        <h3>3. OpenRouter AI 分析</h3>
+        <p>前端呼叫：</p>
+        <pre>POST /api/analyze</pre>
+        <p>Vite proxy 轉向：</p>
+        <pre>https://openrouter.ai/api/v1/chat/completions</pre>
+        <p>模型由 <code>.env.local</code> 的 <code>AI_MODEL</code> 控制，預設是 <code>openrouter/free</code>。</p>
+      </section>
+
+      <h2>技術指標計算規則</h2>
+      <section>
+        <table>
+          <tbody>
+            <tr>
+              <th>均線</th>
+              <td>MA20、MA60、MA120、MA240，使用收盤價 rolling mean。</td>
+            </tr>
+            <tr>
+              <th>KD</th>
+              <td>9 日 RSV，K 與 D 使用 1/3 EMA 類似平滑。</td>
+            </tr>
+            <tr>
+              <th>MACD</th>
+              <td>DIF = EMA12 - EMA26，DEA = EMA9(DIF)。</td>
+            </tr>
+            <tr>
+              <th>RSI</th>
+              <td>14 日類 Wilder 平滑，使用漲跌幅 gain/loss。</td>
+            </tr>
+            <tr>
+              <th>52 週高低</th>
+              <td>用 240 個交易日 rolling high / rolling low 近似。</td>
+            </tr>
+            <tr>
+              <th>狀態判斷</th>
+              <td>
+                收盤低於 MA60 為弱勢；趨勢條件 ≥ 4 且近 20 日有訊號為 go；
+                趨勢條件 ≥ 4 但無訊號為 wait；其他為 neutral。
+              </td>
+            </tr>
+            <tr>
+              <th>停損參考</th>
+              <td>近 20 日低點、MA60、收盤價乘 0.92。這只是參考值，不是 AI 目標價。</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <h2>AI Prompt</h2>
+      <section>
+        <h3>System Prompt：實際送給 AI 的規則</h3>
+        <pre>你是專業且客觀的台股證券分析師。你只能根據使用者提供的 Yahoo Finance 股價、可用的籌碼/融資融券資料與程式計算出的技術指標分析，不可以假裝你查到了額外資料。
+
+如果資料中沒有基本面、新聞或產業資訊，相關欄位要明確寫「目前輸入資料未包含，不能只靠猜測判斷」，不要自行編造。
+
+請嚴格用以下格式輸出，每個欄位用 @@欄位名@@ 獨立成行，不要輸出 JSON、markdown 或其他說明。
+
+@@NAME@@ 公司名稱或使用者輸入
+@@TICKER@@ 股票代號
+@@EXCHANGE@@ 若資料未提供請寫「資料未提供」
+@@SECTOR@@ 若資料未提供請寫「資料未提供」
+@@SNAPSHOT@@ 根據提供的價格、均線、籌碼資料，用白話整理目前狀態 1-2 句
+@@FUNDAMENTAL@@ 目前輸入資料未包含基本面，不能只靠猜測判斷
+@@TECHNICAL@@ 根據 providedData.technical 與 providedData.priceSeries 白話分析趨勢、均線、KD、RSI、是否接近買點 2-5 句
+@@CHIPS@@ 根據 providedData.chips 與 providedData.margin 白話分析法人與融資融券變化 2-4 句
+@@NEWS@@ 目前輸入資料未包含新聞，不能只靠猜測判斷
+@@INDUSTRY@@ 目前輸入資料未包含產業資料，不能只靠猜測判斷
+@@BUYPOINT@@ 只根據提供資料，用 Weinstein / Minervini / O'Neil 的趨勢、突破、拉回、量價與停損原則判讀目前比較像哪種狀況；不可喊買進或賣出，不可給目標價 3-5 句
+@@RISKS@@ 風險1 | 風險2 | 風險3
+@@DATANOTE@@ 說明資料來源為 Yahoo Finance、可用的籌碼資料與本機技術指標計算，並列出資料日期範圍與限制</pre>
+
+        <h3>User Prompt Template：每次查詢會帶入股票與資料</h3>
+        <pre>請分析這檔台股：「${q}」。
+
+以下是程式實際抓取與計算後的資料，請只根據這些資料分析，不要自行搜尋或編造其他資料：
+
+providedData:
+${JSON.stringify(providedData, null, 2)}</pre>
+
+        <h3>送到 OpenRouter 前的 payload</h3>
+        <pre>{
+  "max_tokens": 1400,
+  "system": LOCAL_DATA_SYSTEM_PROMPT,
+  "messages": [
+    {
+      "role": "user",
+      "content": buildDataDrivenPrompt(q, providedData)
+    }
+  ]
+}</pre>
+
+        <h3>providedData 大致長相</h3>
+        <pre>{
+  "query": "台積電 2330",
+  "ticker": "2330",
+  "sources": {
+    "price": "Yahoo Finance 2330.TW",
+    "chips": "FinMind institutional investors",
+    "margin": "FinMind margin and short-sale"
+  },
+  "source": "Yahoo Finance price data + optional FinMind chip data + local technical indicator calculations",
+  "generatedAt": "ISO timestamp",
+  "priceRange": { "start": "YYYY-MM-DD", "end": "YYYY-MM-DD", "rows": 60 },
+  "latestPrice": { "date": "YYYY-MM-DD", "close": 2410, "ma20": 2300, "ma60": 2159 },
+  "priceMeta": { "symbol": "2330.TW", "currency": "TWD", "exchangeName": "TAI" },
+  "priceSeries": [
+    { "date": "YYYY-MM-DD", "close": 2410, "ma20": 2300, "ma60": 2159 }
+  ],
+  "technical": {
+    "regime": "趨勢成形＋出現進場訊號",
+    "verdict": "程式規則產生的狀態描述",
+    "trendPass": 5,
+    "close": 2410,
+    "ma60": 2159,
+    "kd": { "k": 80, "d": 64 },
+    "rsi": 63,
+    "recentLow": 2200,
+    "stopPct": 2217.2,
+    "stopRef": 2200,
+    "trendChecklist": [
+      { "label": "收盤站上 MA60 / MA120", "passed": true }
+    ],
+    "triggerChecklist": [
+      { "label": "帶量突破前高", "passed": true }
+    ]
+  },
+  "chips": {
+    "recentRows": [],
+    "fiveDaySum": null
+  },
+  "margin": null,
+  "limitations": [
+    "Price data comes from Yahoo Finance chart data, similar to the yfinance source used by the Python script.",
+    "Chip and margin data are optional FinMind supplements and may be missing or delayed.",
+    "No financial statements, revenue, valuation, news, or industry dataset is included in this request.",
+    "AI must not infer missing fundamental, news, or industry facts."
+  ]
+}</pre>
+      </section>
+
+      <h2>AI 回傳如何變成畫面</h2>
+      <section>
+        <p>AI 必須輸出 <code>@@NAME@@</code>、<code>@@TECHNICAL@@</code> 這種標記。前端用 <code>parseReport()</code> 切欄位，再對應到畫面：</p>
+        <table>
+          <tbody>
+            <tr>
+              <th><code>@@SNAPSHOT@@</code></th>
+              <td>上方公司摘要文字。</td>
+            </tr>
+            <tr>
+              <th><code>@@FUNDAMENTAL@@</code></th>
+              <td>基本面卡片。</td>
+            </tr>
+            <tr>
+              <th><code>@@TECHNICAL@@</code></th>
+              <td>技術面卡片，注意不是狀態卡片本身；狀態卡片是程式計算。</td>
+            </tr>
+            <tr>
+              <th><code>@@CHIPS@@</code></th>
+              <td>籌碼面 AI 白話解讀。</td>
+            </tr>
+            <tr>
+              <th><code>@@NEWS@@</code></th>
+              <td>消息面卡片；目前沒有新聞資料，AI 應說資料未包含。</td>
+            </tr>
+            <tr>
+              <th><code>@@INDUSTRY@@</code></th>
+              <td>產業地位卡片；目前沒有產業資料，AI 應說資料未包含。</td>
+            </tr>
+            <tr>
+              <th><code>@@BUYPOINT@@</code></th>
+              <td>買點判讀區塊。</td>
+            </tr>
+            <tr>
+              <th><code>@@RISKS@@</code></th>
+              <td>風險提示列表。</td>
+            </tr>
+            <tr>
+              <th><code>@@DATANOTE@@</code></th>
+              <td>資料註記。</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <h2>結論</h2>
+      <section>
+        <p>
+          目前版本的核心設計是：<strong>資料先由程式抓取與計算，AI 只負責白話分析與格式化輸出</strong>。
+          價格與技術狀態不是 AI 生成；買點判讀、風險提示、各面向文字卡片才是 AI 生成，而且 prompt 已限制 AI 不能自行搜尋或編造缺失資料。
+        </p>
+      </section>
+    </main>
+  </body>
+</html>
