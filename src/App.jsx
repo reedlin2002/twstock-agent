@@ -1,31 +1,30 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
-  Search, Users, Newspaper, AlertTriangle,
+  Search, Newspaper, AlertTriangle, BarChart3,
   Compass, Loader2, Info, RefreshCw, TrendingUp,
-  Star, Notebook, Copy, Check, Clock, Sparkles, Menu,
+  Star, Notebook, Copy, Check, Sparkles, Menu,
 } from 'lucide-react';
 import {
-  ComposedChart, Area, Line, BarChart, Bar, Cell, XAxis, YAxis,
-  Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine,
+  ComposedChart, Area, Line, XAxis, YAxis,
+  Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts';
 
 import './styles/app.css';
 import { EXAMPLES, SECTIONS, LOAD_MSGS } from './data/constants.js';
-import { fmtMD, pf, rangef, daysAgo } from './lib/format.js';
+import { fmtMD, pf, sf, rangef, daysAgo } from './lib/format.js';
 import { planSummary, toneForText } from './lib/technicals.js';
 import {
   finmind, yahooPrice, processFinmind, resolveTickerAsync, buildProvidedData, extractAiText, googleNews, quickQuotes,
 } from './lib/data.js';
-import { parseReport } from './lib/parseReport.js';
+import { parseReport, sanitizeLeaks } from './lib/parseReport.js';
 import {
   LOCAL_DATA_SYSTEM_PROMPT, LIVE_SEARCH_SYSTEM_PROMPT, buildDataDrivenPrompt, buildNewsBlock,
 } from './lib/prompts.js';
-import { PriceTip, ChipTip } from './components/Tooltips.jsx';
-import { Stat } from './components/Stat.jsx';
-import { Rows } from './components/Checklist.jsx';
+import { PriceTip } from './components/Tooltips.jsx';
 import GlossaryModal from './components/GlossaryModal.jsx';
 import AppSplash from './components/AppSplash.jsx';
 import StockNoteModal from './components/StockNoteModal.jsx';
+import StockDetailsModal from './components/StockDetailsModal.jsx';
 import WatchlistDrawer from './components/WatchlistDrawer.jsx';
 import { buildDataEvents } from './lib/derivedEvents.js';
 import { buildMarkdownReport } from './lib/markdownReport.js';
@@ -58,6 +57,9 @@ export default function TaiwanStockAgentPro() {
   const [showWatch, setShowWatch] = useState(false); // 自選股抽屜開關
   const [quotes, setQuotes] = useState({});            // 自選股即時報價 { [code]: quote }
   const [quotesLoading, setQuotesLoading] = useState(false);
+  const [showDetails, setShowDetails] = useState(false); // 詳細數據彈窗開關
+  const [aiHl, setAiHl] = useState(false);               // AI 結果出現時的高亮脈動
+  const aiSecRef = useRef(null);                          // AI 區錨點（按下後自動捲到此）
 
   // 啟動時載入個人化資料（localStorage，已防呆）
   useEffect(() => {
@@ -72,6 +74,14 @@ export default function TaiwanStockAgentPro() {
     const id = setInterval(() => setMsgIdx((i) => (i + 1) % LOAD_MSGS.length), 2200);
     return () => clearInterval(id);
   }, [aiLoading]);
+
+  // AI 結果出現時，高亮脈動一次（提示結果落在這）
+  useEffect(() => {
+    if (!result) return;
+    setAiHl(true);
+    const id = setTimeout(() => setAiHl(false), 1500);
+    return () => clearTimeout(id);
+  }, [result]);
 
   // 開抽屜時抓自選股即時報價（清單變動也重抓；不輪詢）
   useEffect(() => {
@@ -161,6 +171,8 @@ export default function TaiwanStockAgentPro() {
     if (!stock || fm.status !== 'ok' || aiLoading) return;
     setAiLoading(true);
     setAiError(null);
+    // 立即捲到底部 AI 區，讓使用者看到分析進度（結果就落在這）
+    setTimeout(() => aiSecRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
     const q = `${stock.name} ${stock.code}`.trim();
     try {
       const providedData = buildProvidedData({ query: q, ticker: stock.code, companyName: stock.name, fmData: fm });
@@ -204,7 +216,7 @@ export default function TaiwanStockAgentPro() {
           ticker: parsed.ticker || stock.code,
           _sources: sources,
         });
-      } else if (text && text.trim()) setResult({ _raw: text, name: stock.name, _sources: sources });
+      } else if (text && text.trim()) setResult({ _raw: sanitizeLeaks(text), name: stock.name, _sources: sources });
       else throw new Error('沒有取得分析結果，請稍後再試。');
     } catch (e) {
       setAiError(e.message || 'AI 分析發生錯誤，請稍後再試。');
@@ -223,6 +235,8 @@ export default function TaiwanStockAgentPro() {
     ? fm.price[fm.price.length - 1].close
     : (ta?.close ?? null);
   const dataEvents = buildDataEvents(ta, fm);
+  const triggerHit = ta ? ta.trigger.filter(([, ok]) => ok).length : 0; // 進場訊號命中數
+  const sum = fm.status === 'ok' ? fm.sum : null;                        // 三大法人近5日彙總
   const holding = buildHoldingStatus(note, latestClose);
   const watched = curCode ? isWatched(watchlist, curCode) : false;
   const noteFilled = curCode ? hasNote(curCode) : false;
@@ -332,41 +346,18 @@ export default function TaiwanStockAgentPro() {
             </button>
           </div>
 
-          {/* 首頁才顯示：範例 / 自選股 / 最近查詢 */}
+          {/* 首頁才顯示：熱門（單行橫向滑動）。自選股 / 最近查詢 已在左上 ☰ 抽屜，首頁不重複 */}
           {home && (
-            <>
-              <div className="cps">
+            <div className="hot">
+              <span className="hotlabel"><Star size={13} />熱門</span>
+              <div className="hotrow">
                 {EXAMPLES.map((ex) => (
                   <button key={ex.code} className="cp" onClick={() => openStock(`${ex.name} ${ex.code}`)}>
                     {ex.name}<span className="cd">{ex.code}</span>
                   </button>
                 ))}
               </div>
-              {watchlist.length > 0 && (
-                <div className="qbar">
-                  <span className="qbl"><Star size={13} />自選股</span>
-                  <div className="qchips">
-                    {watchlist.map((it) => (
-                      <button key={it.code} className="cp" onClick={() => openStock(`${it.name} ${it.code}`.trim())}>
-                        {it.name || it.code}<span className="cd">{it.code}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {recent.length > 0 && (
-                <div className="qbar">
-                  <span className="qbl"><Clock size={13} />最近查詢</span>
-                  <div className="qchips">
-                    {recent.map((it) => (
-                      <button key={it.code} className="cp" onClick={() => openStock(`${it.name} ${it.code}`.trim())}>
-                        {it.name || it.code}<span className="cd">{it.code}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
+            </div>
           )}
 
           {error && <div className="er"><AlertTriangle size={18} style={{ flex: 'none', marginTop: 1 }} /><span>{error}</span></div>}
@@ -381,6 +372,7 @@ export default function TaiwanStockAgentPro() {
           {home && !error && (
             <div className="mt"><div className="t">輸入任一台股，先看價格與技術面</div>
               <div className="d">查詢即時出價格走勢、買點檢查表與法人籌碼；需要時再按「AI 深入分析」</div>
+              <div className="d2">自選股與最近查詢都收在左上角 <Menu size={13} /> 選單裡</div>
             </div>
           )}
 
@@ -421,6 +413,25 @@ export default function TaiwanStockAgentPro() {
                   </button>
                 </div>
               </div>
+
+              {/* 置頂 AI 主按鈕：按下後結果落在最下方 AI 區並自動捲過去 */}
+              {fm.status === 'ok' && (
+                <div className="aitop">
+                  <button className="aibtn aitop-btn" onClick={runAi} disabled={aiLoading}>
+                    {aiLoading
+                      ? <><Loader2 size={16} className="spin" />AI 分析中…</>
+                      : <><Sparkles size={16} />{result ? '重新 AI 分析' : 'AI 深入分析'}{liveSearch ? '（含 Google 新聞）' : ''}</>}
+                  </button>
+                  <label className="aitoggle aitop-toggle">
+                    <input type="checkbox" checked={liveSearch} onChange={(e) => setLiveSearch(e.target.checked)} />
+                    <span className="aiswitch" />
+                    <span className="aitoggletx">
+                      即時新聞（Google News）<span className="aitoggled">抓近期新聞・附標題日期來源，免費（預設關）</span>
+                    </span>
+                  </label>
+                  <div className="aitop-hint"><Info size={12} />整理基本面 / 消息面 / 產業 / 買點 / 風險，約 20–40 秒。結果會出現在最下方，按下自動帶你過去。</div>
+                </div>
+              )}
 
               {/* 持股條件提醒（依我的紀錄 + 目前股價） */}
               {holding && (
@@ -523,92 +534,27 @@ export default function TaiwanStockAgentPro() {
                       <div className="plnote">{ta.tradePlan.note} 以上是規則化參考，不是保證獲利或投資建議。</div>
                     </div>
                   )}
-
-                  <div className="cg">
-                    <div className="chk">
-                      <h3>趨勢結構檢查表</h3>
-                      <div className="sb">Weinstein 階段分析 ＋ Minervini 趨勢樣板（套用台股均線）</div>
-                      <Rows items={ta.trend} />
-                      <div className="pg">
-                        <div className="trk"><div className="fl" style={{ width: `${(ta.trendPass / 5) * 100}%` }} /></div>
-                        <span className="pc">{ta.trendPass} / 5</span>
-                      </div>
-                    </div>
-                    <div className="chk">
-                      <h3>進場訊號（近 20 個交易日）</h3>
-                      <div className="sb">O'Neil 突破 ‧ 拉回均線 ‧ 台股 KD／MACD 轉折</div>
-                      <Rows items={ta.trigger} />
-                    </div>
-                  </div>
                 </>
               )}
 
-              {/* 法人籌碼動向 */}
-              <div className="pn">
-                <div className="ph"><span className="ic"><Users size={17} /></span><h3>法人籌碼動向</h3><span className="src">FinMind</span></div>
-                <div className="psb">三大法人每日買賣超（張）‧ 紅買超 / 綠賣超</div>
-                {fm.status === 'loading' && <div className="mn"><Loader2 size={15} className="spin" />載入法人籌碼中…</div>}
-                {fm.status === 'fail' && <div className="mn">籌碼資料無法載入</div>}
-                {fm.status === 'ok' && (
-                  <>
-                    {fm.chips && fm.chips.length > 0 && (
-                      <ResponsiveContainer width="100%" height={158}>
-                        <BarChart data={fm.chips} margin={{ top: 4, right: 6, left: -10, bottom: 0 }}>
-                          <CartesianGrid stroke="#2C261E" vertical={false} />
-                          <XAxis dataKey="date" tickFormatter={fmtMD} minTickGap={36} tick={{ fill: '#8C8472', fontSize: 10 }} stroke="#3A3025" />
-                          <YAxis width={42} tick={{ fill: '#8C8472', fontSize: 10 }} stroke="#3A3025" />
-                          <ReferenceLine y={0} stroke="#5b5346" />
-                          <Tooltip content={<ChipTip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
-                          <Bar dataKey="net" radius={[2, 2, 0, 0]}>
-                            {fm.chips.map((d, i) => <Cell key={i} fill={d.net >= 0 ? '#E0413C' : '#26A269'} />)}
-                          </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
-                    )}
-                    {fm.sum && (
-                      <div className="sts">
-                        <Stat k="外資 近5日" v={fm.sum.外資} signed unit="張" />
-                        <Stat k="投信 近5日" v={fm.sum.投信} signed unit="張" />
-                        <Stat k="自營 近5日" v={fm.sum.自營} signed unit="張" />
-                      </div>
-                    )}
-                    {fm.margin && (
-                      <div className="sts">
-                        <Stat k="融資餘額" v={fm.margin.marginBal} unit="張" />
-                        <Stat k="融資 近5日增減" v={fm.margin.marginChg} signed unit="張" />
-                        <Stat k="融券餘額" v={fm.margin.shortBal} unit="張" />
-                        <Stat k="融券 近5日增減" v={fm.margin.shortChg} signed unit="張" />
-                      </div>
-                    )}
-                    {fm.sum && (
-                      <div className="tk">
-                        {fm.sum.外資 >= 0 ? '外資近5日站在買方' : '外資近5日站在賣方'}、
-                        {fm.sum.投信 >= 0 ? '投信買超' : '投信賣超'}
-                        {fm.margin && fm.margin.marginChg != null ? `，融資${fm.margin.marginChg >= 0 ? '增加（追價意願較高）' : '減少（散戶退場/籌碼沉澱）'}` : ''}
-                        。法人是否與股價同步，是台股研判籌碼的關鍵。
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-
-              {/* 近期數據事件（由已抓取數據推導，非新聞推測） */}
-              <div className="pn">
-                <div className="ph"><span className="ic"><Newspaper size={17} /></span><h3>近期數據事件</h3><span className="src">由數據推導</span></div>
-                <div className="psb">以下皆可由已抓取的價量與籌碼數據佐證，屬事實觀察、非新聞推測</div>
-                {dataEvents.hasData ? (
-                  <div className="evs">
-                    {dataEvents.events.map((e, i) => (
-                      <div className={`ev ${e.tone}`} key={i}><i className="evd" /><span>{e.text}</span></div>
-                    ))}
+              {/* 摘要數字列：headline 數字 inline，明細收進「詳細數據」彈窗 */}
+              {(ta || fm.status === 'ok') && (
+                <div className="sumstrip">
+                  <div className="sumchips">
+                    {ta && <span className="sumchip"><b>趨勢</b>{ta.trendPass}/5</span>}
+                    {ta && <span className="sumchip"><b>進場</b>{triggerHit} 命中</span>}
+                    {sum && <span className={`sumchip ${sum.外資 >= 0 ? 'u' : 'd'}`}><b>外資5日</b>{sf(sum.外資)}</span>}
+                    {sum && <span className={`sumchip ${sum.投信 >= 0 ? 'u' : 'd'}`}><b>投信5日</b>{sf(sum.投信)}</span>}
                   </div>
-                ) : (
-                  <div className="insuf">資料不足：目前沒有可由數據明確佐證的事件。</div>
-                )}
-              </div>
+                  <button className="sumbtn" onClick={() => setShowDetails(true)}>
+                    <BarChart3 size={14} />詳細數據 ▾
+                  </button>
+                </div>
+              )}
 
-              {/* ===== AI 深入分析區（慢，按需） ===== */}
-              <div className="aisec">
+              {/* ===== AI 深入分析區（慢，按需）：結果落在這，按上方按鈕觸發並自動捲到此 ===== */}
+              <div className={`aisec ${aiHl ? 'hl' : ''}`} ref={aiSecRef}>
+                <div className="aihd"><Sparkles size={16} />AI 深入分析</div>
                 {aiError && (
                   <div className="er" style={{ marginTop: 14 }}>
                     <AlertTriangle size={18} style={{ flex: 'none', marginTop: 1 }} />
@@ -616,20 +562,11 @@ export default function TaiwanStockAgentPro() {
                   </div>
                 )}
 
-                {!result && !aiLoading && (
-                  <div className="aicta">
-                    <div className="aictah"><Sparkles size={18} />AI 深入分析（選用）</div>
-                    <div className="aictad">用上方已抓取的數據，整理基本面、消息面、產業地位、買點條件與風險。約 20–40 秒，按了才會執行。勾選「即時新聞」那次才會用 Google News 抓最新新聞做消息面分析（免費）。</div>
-                    <label className="aitoggle">
-                      <input type="checkbox" checked={liveSearch} onChange={(e) => setLiveSearch(e.target.checked)} />
-                      <span className="aiswitch" />
-                      <span className="aitoggletx">
-                        即時新聞（Google News）<span className="aitoggled">抓近期新聞・附標題日期來源，免費（預設關）</span>
-                      </span>
-                    </label>
-                    <button className="aibtn" onClick={runAi}>
-                      <Sparkles size={16} />{liveSearch ? '開始 AI 深入分析（含 Google 新聞）' : '開始 AI 深入分析'}
-                    </button>
+                {!result && !aiLoading && !aiError && (
+                  <div className="aiph">
+                    <Sparkles size={22} />
+                    <div className="aiph-t">分析結果會出現在這裡</div>
+                    <div className="aiph-d">按上方「AI 深入分析」按鈕，約 20–40 秒後會整理出基本面、消息面、產業地位、買點條件與風險。</div>
                   </div>
                 )}
 
@@ -720,6 +657,14 @@ export default function TaiwanStockAgentPro() {
           latestClose={latestClose}
           onSave={onSaveNote}
           onClear={onClearNote}
+        />
+
+        <StockDetailsModal
+          open={showDetails}
+          onClose={() => setShowDetails(false)}
+          ta={ta}
+          fm={fm}
+          dataEvents={dataEvents}
         />
 
         <WatchlistDrawer

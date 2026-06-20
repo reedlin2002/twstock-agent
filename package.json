@@ -7,7 +7,8 @@
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "android:apk": "npm run build && npx cap sync android && npx cap open android"
+    "android:apk": "vite build && cap sync android && cd android && .\\gradlew.bat assembleDebug",
+    "android:apk:release": "vite build && cap sync android && cd android && .\\gradlew.bat assembleRelease"
   },
   "dependencies": {
     "@capacitor/core": "^8.4.0",

@@ -333,3 +333,45 @@
 .wl-foot{margin-top:22px;padding-top:14px;border-top:1px solid var(--line);font-size:11px;color:var(--faint);line-height:1.7;}
 @media(max-width:480px){.wl-panel{width:100%;max-width:100%;}}
 @media(prefers-reduced-motion:reduce){.wl-panel{transition:none;}.wl-sk{animation:none;}}
+/* ===== v4：首頁單行熱門 + 結果頁摘要列 + AI 置頂 + 詳細數據彈窗 ===== */
+/* 首頁熱門（單行橫向滑動） */
+.hot{display:flex;align-items:center;gap:10px;margin-top:14px;}
+.hotlabel{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--faint);font-family:var(--fm);white-space:nowrap;flex:none;}
+.hotlabel svg{color:var(--gold);}
+.hotrow{display:flex;flex-wrap:nowrap;gap:8px;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding:2px;min-width:0;}
+.hotrow::-webkit-scrollbar{display:none;}
+.hotrow .cp{flex:none;}
+.mt .d2{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--faint);margin-top:16px;background:var(--ink2);border:1px solid var(--line);border-radius:999px;padding:6px 13px;}
+.mt .d2 svg{color:var(--gold);flex:none;}
+/* 置頂 AI 主按鈕卡 */
+.aitop{margin-top:14px;display:flex;flex-direction:column;align-items:stretch;gap:10px;background:linear-gradient(180deg,rgba(226,166,54,.12),var(--ink2));border:1px solid rgba(226,166,54,.34);border-radius:15px;padding:15px 16px;}
+.aitop-btn{justify-content:center;width:100%;font-size:15.5px;padding:13px 22px;}
+.aitop-btn:disabled{opacity:.65;cursor:wait;filter:none;}
+.aitop .aitoggle{margin:0;max-width:none;width:100%;}
+.aitop-hint{display:flex;align-items:flex-start;gap:6px;font-size:11.5px;color:var(--dim);line-height:1.6;}
+.aitop-hint svg{flex:none;margin-top:2px;color:var(--gold);}
+/* 摘要數字列（明細收進詳細數據彈窗） */
+.sumstrip{margin-top:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--ink2);border:1px solid var(--line);border-radius:13px;padding:11px 13px;}
+.sumchips{display:flex;flex-wrap:wrap;gap:7px;flex:1;min-width:0;}
+.sumchip{display:inline-flex;align-items:baseline;gap:5px;font-family:var(--fm);font-size:12.5px;color:var(--pap);background:var(--ink3);border:1px solid var(--line);border-radius:8px;padding:5px 10px;white-space:nowrap;}
+.sumchip b{font-weight:600;font-size:10.5px;color:var(--faint);letter-spacing:.02em;}
+.sumchip.u{color:var(--up);}.sumchip.d{color:var(--dn);}
+.sumbtn{flex:none;display:inline-flex;align-items:center;gap:6px;background:var(--golds);border:1px solid rgba(226,166,54,.4);color:#F0D89A;border-radius:9px;padding:8px 14px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:var(--fcjk);transition:filter .15s;}
+.sumbtn:hover{filter:brightness(1.1);}.sumbtn svg{flex:none;}
+/* AI 區段標題 + 尚未分析時的落點 placeholder + 完成高亮 */
+.aihd{display:flex;align-items:center;gap:8px;margin:26px 2px 12px;font-size:15px;font-weight:800;color:#F0D89A;}
+.aihd svg{color:var(--gold);}
+.aiph{display:flex;flex-direction:column;align-items:center;text-align:center;gap:7px;padding:30px 22px;border:1px dashed var(--line);border-radius:15px;color:var(--faint);background:rgba(226,166,54,.03);}
+.aiph>svg{color:var(--gold);opacity:.85;}
+.aiph-t{font-size:14px;color:var(--dim);font-weight:700;}
+.aiph-d{font-size:12px;color:var(--faint);line-height:1.7;max-width:380px;}
+.aisec.hl{animation:aipulse 1.5s ease-out 1;border-radius:16px;}
+@keyframes aipulse{0%{box-shadow:0 0 0 0 rgba(226,166,54,0);}15%{box-shadow:0 0 0 3px rgba(226,166,54,.45);}100%{box-shadow:0 0 0 0 rgba(226,166,54,0);}}
+/* 詳細數據彈窗分頁（沿用 .glos-* 底部彈窗） */
+.dt-tabs{display:flex;gap:6px;padding:12px 16px 0;}
+.dt-tab{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:6px;background:var(--ink2);border:1px solid var(--line);color:var(--dim);border-radius:10px;padding:9px 8px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--fcjk);transition:all .15s;}
+.dt-tab:hover{border-color:var(--gold);color:var(--pap);}
+.dt-tab.on{background:var(--golds);border-color:rgba(226,166,54,.5);color:#F0D89A;}
+.dt-tab svg{flex:none;}
+.dt-stack{display:flex;flex-direction:column;gap:14px;}
+@media(prefers-reduced-motion:reduce){.aisec.hl{animation:none;}}
