@@ -457,8 +457,8 @@ GET /api/finmind?dataset=TaiwanStockMarginPurchaseShortSale&amp;data_id=2330&amp
               </td>
             </tr>
             <tr>
-              <th>停損參考</th>
-              <td>近 20 日低點、MA60、收盤價乘 0.92。這只是參考值，不是 AI 目標價。</td>
+              <th>停損／停利</th>
+              <td>以觀察區上緣為假設買價，取近 20 日低點 / MA60×0.98 / 買價×0.92 中最接近的支撐當停損線，並確保與買價至少相隔 1×ATR 或 3%；停利為買價 +2R / +3R（R = 買價 − 停損線）。所有價格對齊台股跳動單位。這只是參考值，不是 AI 目標價。</td>
             </tr>
           </tbody>
         </table>
@@ -533,8 +533,17 @@ ${JSON.stringify(providedData, null, 2)}</pre>
     "kd": { "k": 80, "d": 64 },
     "rsi": 63,
     "recentLow": 2200,
-    "stopPct": 2217.2,
-    "stopRef": 2200,
+    "tradePlan": {
+      "mode": "突破後回測觀察",
+      "entryLow": 2350,
+      "entryHigh": 2410,
+      "breakout": 2415,
+      "stopLine": 2280,
+      "takeProfit1": 2670,
+      "takeProfit2": 2800,
+      "trailStop": 2360,
+      "note": "趨勢與訊號已成形，偏向等拉回不破短均或突破線附近"
+    },
     "trendChecklist": [
       { "label": "收盤站上 MA60 / MA120", "passed": true }
     ],

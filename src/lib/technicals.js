@@ -11,6 +11,25 @@ const emaA = (a, al) => { const o = []; let p; a.forEach((v, i) => { p = i === 0
 const emaS = (a, sp) => emaA(a, 2 / (sp + 1));
 const bounded = (x, min, max) => Math.max(min, Math.min(max, x));
 
+// 台股最小升降單位（上市櫃股票六級距）；以「該價位」決定 tick
+export const tickSize = (p) => {
+  const v = Math.abs(Number(p));
+  if (v < 10) return 0.01;
+  if (v < 50) return 0.05;
+  if (v < 100) return 0.1;
+  if (v < 500) return 0.5;
+  if (v < 1000) return 1;
+  return 5;
+};
+// 把價格對齊到合法的台股跳動單位；dir = 'down' | 'up' | 'nearest'
+export const roundToTick = (p, dir = 'nearest') => {
+  if (p == null || !Number.isFinite(Number(p))) return null;
+  const v = Number(p);
+  const t = tickSize(v);
+  const f = dir === 'down' ? Math.floor : dir === 'up' ? Math.ceil : Math.round;
+  return Number((f(v / t) * t).toFixed(2));
+};
+
 export function computeTA(pr) {
   const n = pr.length; if (n < 60) return null;
   const close = pr.map((d) => d.close), high = pr.map((d) => d.high), low = pr.map((d) => d.low),
@@ -58,8 +77,8 @@ export function computeTA(pr) {
   const ma20 = MA20[i] || c;
   const ma60 = MA60[i] || c;
   const priorHigh = rh[i - 1] || c;
-  const stopLine = bounded(Math.max(recentLow, ma60 * 0.98, c * 0.92), c * 0.86, c * 0.985);
-  const risk = Math.max(c - stopLine, atr);
+
+  // 1) 先依 regime 算「觀察買點區間」（只依賴均線／ATR／現價）
   let entryLow;
   let entryHigh;
   let mode;
@@ -86,22 +105,39 @@ export function computeTA(pr) {
     planNote = '條件還沒有明顯站在多方，先看能不能站穩季線與量能轉強。';
   }
   if (entryLow > entryHigh) [entryLow, entryHigh] = [entryHigh, entryLow];
+  entryLow = roundToTick(entryLow, 'nearest');
+  entryHigh = roundToTick(entryHigh, 'nearest');
+  if (entryLow > entryHigh) [entryLow, entryHigh] = [entryHigh, entryLow];
+
+  // 2) 以「觀察區上緣」為假設買價，停損／風險／停利皆用同一基準，2R/3R 才名實相符
+  const refEntry = entryHigh;
+  let stopLine = bounded(
+    Math.max(recentLow, ma60 * 0.98, refEntry * 0.92),
+    refEntry * 0.86,
+    refEntry * 0.985,
+  );
+  const minStop = Math.max(atr, refEntry * 0.03); // 停損與買價至少相隔 1×ATR 或 3%
+  if (refEntry - stopLine < minStop) stopLine = refEntry - minStop; // 太近就「放寬停損」，而非灌大目標
+  stopLine = bounded(stopLine, refEntry * 0.86, refEntry * 0.985);
+  stopLine = roundToTick(stopLine, 'down'); // 停損向下對齊（稍遠一點、較不易被巧合掃到）
+
+  const risk = refEntry - stopLine; // 單一一致的 1R（取代舊的 Math.max(c - stopLine, atr)）
   const tradePlan = {
     cls,
     mode,
     entryLow,
     entryHigh,
-    breakout: priorHigh,
+    breakout: roundToTick(priorHigh, 'up'),
     stopLine,
-    takeProfit1: c + risk * 2,
-    takeProfit2: c + risk * 3,
-    trailStop: Math.max(ma20, c - atr * 1.5),
+    takeProfit1: roundToTick(refEntry + risk * 2, 'nearest'),
+    takeProfit2: roundToTick(refEntry + risk * 3, 'nearest'),
+    trailStop: roundToTick(Math.max(ma20, refEntry - atr * 1.5), 'down'),
     risk,
     note: planNote,
   };
   return {
     close: c, ma60: MA60[i], k: K[i], d: D[i], rsi: RSI[i], trend, trigger, trendPass, hasTrig,
-    regime, cls, verdict, recentLow, stopPct: c * 0.92, stopRef: Math.max(recentLow, MA60[i]), tradePlan,
+    regime, cls, verdict, recentLow, tradePlan,
   };
 }
 

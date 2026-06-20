@@ -526,7 +526,7 @@ export default function TaiwanStockAgentPro() {
                           <div className="k">跌破就收手</div>
                           <div className="v">{pf(ta.tradePlan.stopLine)}</div>
                         </div>
-                        <div className="pli take" title={`約 2R / 3R；續強看 ${pf(ta.tradePlan.trailStop)}`}>
+                        <div className="pli take" title={`以觀察區上緣為假設買價，約 2R / 3R；續強看 ${pf(ta.tradePlan.trailStop)}`}>
                           <div className="k">漲到分批收手</div>
                           <div className="v">{pf(ta.tradePlan.takeProfit1)} / {pf(ta.tradePlan.takeProfit2)}</div>
                         </div>

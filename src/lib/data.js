@@ -279,8 +279,6 @@ export const buildProvidedData = ({ query, ticker, companyName, fmData }) => {
         kd: { k: roundMaybe(ta.k), d: roundMaybe(ta.d) },
         rsi: roundMaybe(ta.rsi),
         recentLow: roundMaybe(ta.recentLow),
-        stopPct: roundMaybe(ta.stopPct),
-        stopRef: roundMaybe(ta.stopRef),
         tradePlan: ta.tradePlan
           ? {
             mode: ta.tradePlan.mode,

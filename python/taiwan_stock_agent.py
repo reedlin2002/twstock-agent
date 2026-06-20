@@ -32,6 +32,7 @@ KD、均線、籌碼觀念，標出「買點訊號」並判讀目前是否處於
 """
 
 import sys
+import math
 import datetime as dt
 
 import numpy as np
@@ -135,6 +136,11 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     loss = (-delta.clip(upper=0)).ewm(alpha=1 / 14, adjust=False).mean()
     df["RSI"] = 100 - 100 / (1 + gain / loss.replace(0, np.nan))
 
+    # ATR(14)：真實波幅的移動平均（與前端 technicals.js 一致，供交易計畫用）
+    prev_c = c.shift()
+    tr = pd.concat([h - l, (h - prev_c).abs(), (l - prev_c).abs()], axis=1).max(axis=1)
+    df["ATR14"] = tr.rolling(14, min_periods=1).mean()
+
     # 52 週高低（約 240 交易日）
     df["HI52"] = c.rolling(240, min_periods=20).max()
     df["LO52"] = c.rolling(240, min_periods=20).min()
@@ -164,6 +170,39 @@ def detect_signals(df: pd.DataFrame) -> dict:
         "站上季線(趨勢轉強)": (reclaim_ma60, C_GOLD, "diamond"),
         "帶量突破前高": (vol_breakout, C_UP, "star"),
     }
+
+
+# ─────────────────────────────────────────────────────────────
+# 台股最小升降單位（tick）：讓停損／停利／買點都是可實際掛單的價
+# ─────────────────────────────────────────────────────────────
+def tick_size(p: float) -> float:
+    v = abs(p)
+    if v < 10:
+        return 0.01
+    if v < 50:
+        return 0.05
+    if v < 100:
+        return 0.1
+    if v < 500:
+        return 0.5
+    if v < 1000:
+        return 1.0
+    return 5.0
+
+
+def round_to_tick(p, mode: str = "nearest"):
+    if p is None or not np.isfinite(p):
+        return None
+    t = tick_size(p)
+    if mode == "down":
+        return round(math.floor(p / t) * t, 2)
+    if mode == "up":
+        return round(math.ceil(p / t) * t, 2)
+    return round(round(p / t) * t, 2)
+
+
+def _clamp(x, lo, hi):
+    return max(lo, min(hi, x))
 
 
 # ─────────────────────────────────────────────────────────────
@@ -226,17 +265,67 @@ def assess_now(df: pd.DataFrame, signals: dict) -> dict:
         verdict = ("部分條件符合、部分未到位，屬於整理格局。可把它放進觀察清單，"
                    "等趨勢與量能進一步轉強、出現明確買點再說。")
 
-    # 參考停損
+    # 交易計畫（與前端 technicals.js 同一套規則：以觀察區上緣為假設買價，
+    # 停損／停利皆對齊台股最小升降單位；2R/3R 與停損距離名實相符）
     recent_low = float(df["Low"].tail(20).min())
-    stop_pct = c * 0.92
-    stop_ref = max(recent_low, ma60 if ma60 else recent_low)
+    atr = val(last["ATR14"]) or max(1.0, c * 0.025)
+    ma20v = ma20 if ma20 else c
+    ma60v = ma60 if ma60 else c
+    ph = df["Close"].rolling(60, min_periods=20).max().shift(1).iloc[-1]
+    prior_high = float(ph) if pd.notna(ph) else c
+
+    if ma60 is None or c < ma60v:
+        plan_mode = "先觀察，不急著接"
+        entry_low, entry_high = ma60v, ma60v * 1.02
+        plan_note = "股價還在季線下方，先等重新站回季線並守住，再談進場。"
+    elif trend_pass >= 4 and has_trigger:
+        plan_mode = "突破後回測觀察"
+        entry_low = max(ma60v, ma20v - atr * 0.35)
+        entry_high = min(c, max(ma20v, ma60v) + atr * 0.8)
+        plan_note = "趨勢與訊號已成形，偏向等拉回不破短均或突破線附近，而不是盲目追高。"
+    elif trend_pass >= 4:
+        plan_mode = "等拉回或突破"
+        entry_low = max(ma60v, ma20v - atr * 0.5)
+        entry_high = max(ma20v, ma60v) + atr * 0.5
+        plan_note = "趨勢偏多但訊號不足，等量價確認或回測支撐再評估。"
+    else:
+        plan_mode = "整理區觀察"
+        entry_low, entry_high = ma60v * 0.98, ma60v * 1.02
+        plan_note = "條件還沒有明顯站在多方，先看能不能站穩季線與量能轉強。"
+
+    if entry_low > entry_high:
+        entry_low, entry_high = entry_high, entry_low
+    entry_low = round_to_tick(entry_low, "nearest")
+    entry_high = round_to_tick(entry_high, "nearest")
+    if entry_low > entry_high:
+        entry_low, entry_high = entry_high, entry_low
+
+    ref_entry = entry_high  # 假設買在觀察區上緣（保守）
+    stop_line = _clamp(max(recent_low, ma60v * 0.98, ref_entry * 0.92),
+                       ref_entry * 0.86, ref_entry * 0.985)
+    min_stop = max(atr, ref_entry * 0.03)            # 停損與買價至少相隔 1×ATR 或 3%
+    if ref_entry - stop_line < min_stop:
+        stop_line = ref_entry - min_stop             # 太近就放寬停損，而非灌大目標
+    stop_line = _clamp(stop_line, ref_entry * 0.86, ref_entry * 0.985)
+    stop_line = round_to_tick(stop_line, "down")
+    R = ref_entry - stop_line                         # 單一一致的 1R
+    plan = dict(
+        mode=plan_mode,
+        entry_low=entry_low, entry_high=entry_high,
+        breakout=round_to_tick(prior_high, "up"),
+        stop_line=stop_line,
+        take_profit1=round_to_tick(ref_entry + 2 * R, "nearest"),
+        take_profit2=round_to_tick(ref_entry + 3 * R, "nearest"),
+        trail_stop=round_to_tick(max(ma20v, ref_entry - atr * 1.5), "down"),
+        risk=R, note=plan_note,
+    )
 
     return dict(
         close=c, ma20=ma20, ma60=ma60, ma120=ma120, ma240=ma240,
         hi52=hi52, lo52=lo52, trend=trend, trigger=trigger,
         trend_pass=trend_pass, has_trigger=has_trigger,
         regime=regime, verdict=verdict, vol_ratio=vol_ratio,
-        recent_low=recent_low, stop_pct=stop_pct, stop_ref=stop_ref,
+        recent_low=recent_low, atr=atr, plan=plan,
         k=float(last["K"]), d=float(last["D"]), rsi=float(last["RSI"]),
         dif=float(last["DIF"]), dea=float(last["DEA"]),
     )
@@ -400,6 +489,7 @@ def build_report(df, signals, name, sym, a) -> str:
     ])
 
     vol_txt = "放大" if a["vol_ratio"] > 1.1 else ("萎縮" if a["vol_ratio"] < 0.9 else "持平")
+    p = a["plan"]
 
     html = (
         "<!DOCTYPE html><html lang='zh-Hant'><head><meta charset='utf-8'>"
@@ -431,10 +521,12 @@ def build_report(df, signals, name, sym, a) -> str:
         f"<span class='ok'>{a['vol_ratio']:.2f}× ({vol_txt})</span></div></div>"
         "</div>"
 
-        f"<div class='stop'>⚠ <b>風險與停損</b>（大師方法的共同紀律：先想好出場再進場）：<br>"
-        f"參考停損可設在 <b>跌破近月低點 {f(a['recent_low'])}</b> 或 <b>季線 {f(a['ma60'])}</b>"
-        f"（取較近者），或以最大虧損 -7~8%（約 <b>{f(a['stop_pct'])}</b>）為界。"
-        f"實際停損請依個人資金與風險承受度調整。</div>"
+        f"<div class='stop'>⚠ <b>交易計畫</b>（條件提醒，非買賣建議；以觀察區上緣為假設買價，"
+        f"停損／停利皆已對齊台股最小升降單位）：<br>"
+        f"觀察買點 <b>{f(p['entry_low'])}–{f(p['entry_high'])}</b> ｜ 突破參考 <b>{f(p['breakout'])}</b><br>"
+        f"跌破收手（停損）<b>{f(p['stop_line'])}</b> ｜ 移動停利參考 <b>{f(p['trail_stop'])}</b><br>"
+        f"漲到分批收手（停利）約 <b>{f(p['take_profit1'])}</b> / <b>{f(p['take_profit2'])}</b>（+2R / +3R）。<br>"
+        f"另參考近月低點 {f(a['recent_low'])} 與季線 {f(a['ma60'])}；實際停損請依個人資金與風險承受度調整。</div>"
 
         "<div class='note'>資料來源：Yahoo Finance（yfinance），為日線調整後股價，可能與券商看盤的"
         "未還原價有些微差異。<br>本報告為純技術面分析；法人買賣超、融資融券等籌碼資料未納入"
@@ -465,8 +557,12 @@ def console_summary(name, sym, a):
     print("  ▍進場訊號（近20日）：")
     for txt, ok in a["trigger"]:
         print(f"    [{'✓' if ok else ' '}] {txt}")
-    print(f"\n  ▍參考停損：近月低點 {a['recent_low']:.2f} / 季線 {a['ma60']:.2f} "
-          f"/ 最大-8% 約 {a['stop_pct']:.2f}")
+    p = a["plan"]
+    print("\n  ▍交易計畫（以觀察區上緣為假設買價，已對齊台股 tick）：")
+    print(f"    觀察買點 {p['entry_low']:.2f}–{p['entry_high']:.2f} ｜ 突破 {p['breakout']:.2f}")
+    print(f"    停損 {p['stop_line']:.2f} ｜ 停利 {p['take_profit1']:.2f} / {p['take_profit2']:.2f}"
+          f"（+2R/+3R）｜ 移動停利 {p['trail_stop']:.2f}")
+    print(f"    另參考近月低點 {a['recent_low']:.2f} / 季線 {a['ma60']:.2f}")
     print("═" * 58)
 
 

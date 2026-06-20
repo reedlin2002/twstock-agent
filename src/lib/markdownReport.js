@@ -35,7 +35,7 @@ export function buildMarkdownReport({ name, ticker, result = {}, ta, fm, note, e
       push(`- 觀察區間：${rangef(p.entryLow, p.entryHigh)}`);
       push(`- 突破參考：${pf(p.breakout)}`);
       push(`- 跌破收手：${pf(p.stopLine)}`);
-      push(`- 漲到分批收手：${pf(p.takeProfit1)} / ${pf(p.takeProfit2)}`);
+      push(`- 漲到分批收手：${pf(p.takeProfit1)} / ${pf(p.takeProfit2)}（以觀察區上緣 +2R / +3R 估算）`);
       if (p.trailStop != null) push(`- 移動停利參考：${pf(p.trailStop)}`);
       if (p.note) push(`- 說明：${p.note}`);
     }
