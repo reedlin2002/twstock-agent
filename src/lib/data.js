@@ -6,6 +6,7 @@ import { EXAMPLES } from '../data/constants.js';
 const FINMIND_ENDPOINT = 'https://api.finmindtrade.com/api/v4/data';
 const YAHOO_CHART_ENDPOINT = 'https://query1.finance.yahoo.com/v8/finance/chart';
 const YAHOO_QUOTE_ENDPOINT = 'https://query1.finance.yahoo.com/v7/finance/quote';
+const GOOGLE_NEWS_ENDPOINT = 'https://news.google.com/rss/search';
 
 const parseYahooChart = (payload, symbol) => {
   const result = payload?.chart?.result?.[0];
@@ -110,6 +111,61 @@ export async function yahooPrice(code) {
   } catch {
     return null;
   }
+}
+
+// 輕量報價：只抓近幾日（range=5d），給自選股清單即時顯示用，比 yahooPrice（2 年）省很多。
+// 回傳 { code, symbol, close, prevClose, chg, chgPct, date } 或 null（單檔失敗不影響其他檔）。
+export async function yahooQuote(code) {
+  const c = String(code || '').trim();
+  if (!c) return null;
+
+  const fromRows = (rows, symbol) => {
+    if (!Array.isArray(rows) || rows.length === 0) return null;
+    const last = rows[rows.length - 1];
+    if (!last || last.close == null) return null;
+    const prev = rows.length > 1 ? rows[rows.length - 2] : null;
+    const prevClose = prev?.close ?? null;
+    const chg = prevClose != null ? last.close - prevClose : null;
+    const chgPct = prevClose ? (chg / prevClose) * 100 : null;
+    return { code: c, symbol: symbol || null, close: last.close, prevClose, chg, chgPct, date: last.date };
+  };
+
+  const isNative = typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.();
+
+  if (!isNative && import.meta.env.DEV) {
+    try {
+      const r = await fetch(`/api/yahoo-quote?code=${encodeURIComponent(c)}`);
+      if (!r.ok) return null;
+      const j = await r.json();
+      return fromRows(j?.rows, j?.symbol);
+    } catch {
+      return null;
+    }
+  }
+
+  try {
+    const symbols = c.endsWith('.TW') || c.endsWith('.TWO') ? [c] : [`${c}.TW`, `${c}.TWO`];
+    for (const symbol of symbols) {
+      const r = await fetch(`${YAHOO_CHART_ENDPOINT}/${encodeURIComponent(symbol)}?range=5d&interval=1d&includeAdjustedClose=true`);
+      const payload = await r.json();
+      const parsed = parseYahooChart(payload, symbol);
+      if (r.ok && parsed.rows.length) return fromRows(parsed.rows, symbol);
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// 批次抓多檔報價，回 { [code]: quote|null }
+export async function quickQuotes(codes) {
+  const list = Array.isArray(codes)
+    ? [...new Set(codes.map((x) => String(x || '').trim()).filter(Boolean))]
+    : [];
+  const results = await Promise.all(list.map((c) => yahooQuote(c)));
+  const out = {};
+  list.forEach((c, i) => { out[c] = results[i]; });
+  return out;
 }
 
 export function processFinmind(price, inst, margin) {
@@ -273,33 +329,53 @@ export const extractAiText = (data) => {
   return '';
 };
 
-// 從 OpenRouter web 搜尋回應取出來源（message.annotations 的 url_citation）
-// 回傳 [{ url, title, date }]，以 url 去重；date 盡量從 title/content 抓，抓不到就省略
-const pickCitationDate = (text) => {
-  if (!text) return null;
-  const iso = text.match(/(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})/);
-  if (iso) return `${iso[1]}-${String(iso[2]).padStart(2, '0')}-${String(iso[3]).padStart(2, '0')}`;
-  const cn = text.match(/(20\d{2})\s*年\s*(\d{1,2})\s*月(?:\s*(\d{1,2})\s*日)?/);
-  if (cn) return cn[3] ? `${cn[1]}-${String(cn[2]).padStart(2, '0')}-${String(cn[3]).padStart(2, '0')}` : `${cn[1]}-${String(cn[2]).padStart(2, '0')}`;
-  return null;
+// 解析 Google News RSS（XML）→ [{ url, title, date, source }]
+// Google News 標題慣例為「標題 - 來源」，會把尾端來源去掉；pubDate 轉成 YYYY-MM-DD
+const parseGoogleNewsRss = (xmlText, limit) => {
+  try {
+    const doc = new DOMParser().parseFromString(xmlText, 'application/xml');
+    if (doc.querySelector('parsererror')) return [];
+    const items = Array.from(doc.querySelectorAll('item')).slice(0, limit);
+    return items
+      .map((it) => {
+        const rawTitle = it.querySelector('title')?.textContent?.trim() || '';
+        const source = it.querySelector('source')?.textContent?.trim() || '';
+        const title = source && rawTitle.endsWith(` - ${source}`)
+          ? rawTitle.slice(0, -(source.length + 3)).trim()
+          : rawTitle;
+        const url = it.querySelector('link')?.textContent?.trim() || '';
+        const pub = it.querySelector('pubDate')?.textContent?.trim();
+        const d = pub ? new Date(pub) : null;
+        const date = d && !Number.isNaN(d.getTime()) ? d.toISOString().slice(0, 10) : null;
+        return { url, title, date, source: source || null };
+      })
+      .filter((n) => n.title && n.url);
+  } catch {
+    return [];
+  }
 };
 
-export const extractAiSources = (data) => {
-  const annotations = data?.choices?.[0]?.message?.annotations;
-  if (!Array.isArray(annotations)) return [];
-  const seen = new Set();
-  const out = [];
-  for (const a of annotations) {
-    if (a?.type !== 'url_citation') continue;
-    const c = a.url_citation || {};
-    const url = c.url;
-    if (!url || seen.has(url)) continue;
-    seen.add(url);
-    out.push({
-      url,
-      title: (c.title || url).trim(),
-      date: pickCitationDate(c.title) || pickCitationDate(c.content) || null,
-    });
+// 用 Google News RSS 抓「這檔台股相關」的近期新聞，回傳 [{ url, title, date, source }]
+// 與 finmind/yahooPrice 相同策略：DEV 瀏覽器走 /api/news 代理避免 CORS，native/正式環境直連
+export async function googleNews(query, limit = 8) {
+  if (!query) return [];
+  const isNative = typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.();
+
+  if (!isNative && import.meta.env.DEV) {
+    try {
+      const r = await fetch(`/api/news?q=${encodeURIComponent(query)}`);
+      if (!r.ok) return [];
+      return parseGoogleNewsRss(await r.text(), limit);
+    } catch {
+      return [];
+    }
   }
-  return out;
-};
+
+  try {
+    const r = await fetch(`${GOOGLE_NEWS_ENDPOINT}?q=${encodeURIComponent(query)}&hl=zh-TW&gl=TW&ceid=TW:zh-Hant`);
+    if (!r.ok) return [];
+    return parseGoogleNewsRss(await r.text(), limit);
+  } catch {
+    return [];
+  }
+}

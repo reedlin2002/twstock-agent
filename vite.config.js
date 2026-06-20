@@ -6,6 +6,7 @@ const DEFAULT_MODEL = 'openrouter/free';
 const FINMIND_ENDPOINT = 'https://api.finmindtrade.com/api/v4/data';
 const YAHOO_CHART_ENDPOINT = 'https://query1.finance.yahoo.com/v8/finance/chart';
 const YAHOO_QUOTE_ENDPOINT = 'https://query1.finance.yahoo.com/v7/finance/quote';
+const GOOGLE_NEWS_ENDPOINT = 'https://news.google.com/rss/search';
 
 const readRequestBody = (req) =>
   new Promise((resolve, reject) => {
@@ -135,6 +136,56 @@ const aiProxy = (env) => ({
       }
     });
 
+    server.middlewares.use('/api/yahoo-quote', async (req, res) => {
+      if (req.method !== 'GET') {
+        sendJson(res, 405, { error: { message: 'Method not allowed.' } });
+        return;
+      }
+
+      try {
+        const requestUrl = new URL(req.url || '', 'http://localhost');
+        const code = requestUrl.searchParams.get('code')?.trim();
+        const range = requestUrl.searchParams.get('range') || '5d';
+        const interval = requestUrl.searchParams.get('interval') || '1d';
+
+        if (!code || !/^\d{4,6}$/.test(code)) {
+          sendJson(res, 400, { error: { message: 'Missing or invalid code.' } });
+          return;
+        }
+
+        const symbols = code.endsWith('.TW') || code.endsWith('.TWO')
+          ? [code]
+          : [`${code}.TW`, `${code}.TWO`];
+
+        let lastPayload = null;
+        for (const symbol of symbols) {
+          const upstream = await fetch(
+            `${YAHOO_CHART_ENDPOINT}/${encodeURIComponent(symbol)}?range=${encodeURIComponent(range)}&interval=${encodeURIComponent(interval)}&includeAdjustedClose=true`,
+          );
+          const payload = await upstream.json();
+          lastPayload = payload;
+          const parsed = parseYahooChart(payload, symbol);
+          // 短區間本來就少於 60 列，這裡只要有資料就回（不套 yahoo-price 的 ≥60 門檻）
+          if (upstream.ok && parsed.rows.length) {
+            sendJson(res, 200, { symbol, rows: parsed.rows });
+            return;
+          }
+        }
+
+        sendJson(res, 404, {
+          error: {
+            message: lastPayload?.chart?.error?.description || 'Yahoo Finance did not return quote data.',
+          },
+        });
+      } catch (error) {
+        sendJson(res, 502, {
+          error: {
+            message: `Yahoo Finance request failed: ${error?.message || 'unknown error'}`,
+          },
+        });
+      }
+    });
+
     server.middlewares.use('/api/finmind', async (req, res) => {
       if (req.method !== 'GET') {
         sendJson(res, 405, { error: { message: 'Method not allowed.' } });
@@ -173,6 +224,38 @@ const aiProxy = (env) => ({
         sendJson(res, 502, {
           error: {
             message: `FinMind request failed: ${error?.message || 'unknown error'}`,
+          },
+        });
+      }
+    });
+
+    server.middlewares.use('/api/news', async (req, res) => {
+      if (req.method !== 'GET') {
+        sendJson(res, 405, { error: { message: 'Method not allowed.' } });
+        return;
+      }
+
+      try {
+        const query = new URL(req.url || '', 'http://localhost').searchParams.get('q')?.trim();
+        if (!query) {
+          sendJson(res, 400, { error: { message: 'Missing query.' } });
+          return;
+        }
+
+        // Google News RSS 不送 CORS 標頭，dev 由本 proxy 原樣轉發 XML，解析交給前端
+        const upstreamUrl = `${GOOGLE_NEWS_ENDPOINT}?q=${encodeURIComponent(query)}&hl=zh-TW&gl=TW&ceid=TW:zh-Hant`;
+        const upstream = await fetch(upstreamUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        const responseBody = await upstream.text();
+        res.statusCode = upstream.status;
+        res.setHeader(
+          'Content-Type',
+          upstream.headers.get('content-type') || 'application/xml; charset=utf-8',
+        );
+        res.end(responseBody);
+      } catch (error) {
+        sendJson(res, 502, {
+          error: {
+            message: `Google News request failed: ${error?.message || 'unknown error'}`,
           },
         });
       }

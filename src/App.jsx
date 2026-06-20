@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   Search, Users, Newspaper, AlertTriangle,
   Compass, Loader2, Info, RefreshCw, TrendingUp,
-  Star, Notebook, Copy, Check, Clock, Sparkles,
+  Star, Notebook, Copy, Check, Clock, Sparkles, Menu,
 } from 'lucide-react';
 import {
   ComposedChart, Area, Line, BarChart, Bar, Cell, XAxis, YAxis,
@@ -14,11 +14,11 @@ import { EXAMPLES, SECTIONS, LOAD_MSGS } from './data/constants.js';
 import { fmtMD, pf, rangef, daysAgo } from './lib/format.js';
 import { planSummary, toneForText } from './lib/technicals.js';
 import {
-  finmind, yahooPrice, processFinmind, resolveTickerAsync, buildProvidedData, extractAiText, extractAiSources,
+  finmind, yahooPrice, processFinmind, resolveTickerAsync, buildProvidedData, extractAiText, googleNews, quickQuotes,
 } from './lib/data.js';
 import { parseReport } from './lib/parseReport.js';
 import {
-  LOCAL_DATA_SYSTEM_PROMPT, LIVE_SEARCH_SYSTEM_PROMPT, LIVE_SEARCH_PROMPT, buildDataDrivenPrompt,
+  LOCAL_DATA_SYSTEM_PROMPT, LIVE_SEARCH_SYSTEM_PROMPT, buildDataDrivenPrompt, buildNewsBlock,
 } from './lib/prompts.js';
 import { PriceTip, ChipTip } from './components/Tooltips.jsx';
 import { Stat } from './components/Stat.jsx';
@@ -26,6 +26,7 @@ import { Rows } from './components/Checklist.jsx';
 import GlossaryModal from './components/GlossaryModal.jsx';
 import AppSplash from './components/AppSplash.jsx';
 import StockNoteModal from './components/StockNoteModal.jsx';
+import WatchlistDrawer from './components/WatchlistDrawer.jsx';
 import { buildDataEvents } from './lib/derivedEvents.js';
 import { buildMarkdownReport } from './lib/markdownReport.js';
 import { buildHoldingStatus } from './lib/holdingStatus.js';
@@ -42,7 +43,7 @@ export default function TaiwanStockAgentPro() {
   const [result, setResult] = useState(null);      // AI 產物（按需）
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState(null);
-  const [liveSearch, setLiveSearch] = useState(false); // 即時網路搜尋（按需、會計費），預設關
+  const [liveSearch, setLiveSearch] = useState(false); // 即時新聞（按需用 Google News 抓新聞做消息面，免費），預設關
   const [error, setError] = useState(null);
   const [msgIdx, setMsgIdx] = useState(0);
   const [fm, setFm] = useState({ status: 'idle' });
@@ -54,6 +55,9 @@ export default function TaiwanStockAgentPro() {
   const [note, setNote] = useState(DEFAULT_NOTE);
   const [showNote, setShowNote] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [showWatch, setShowWatch] = useState(false); // 自選股抽屜開關
+  const [quotes, setQuotes] = useState({});            // 自選股即時報價 { [code]: quote }
+  const [quotesLoading, setQuotesLoading] = useState(false);
 
   // 啟動時載入個人化資料（localStorage，已防呆）
   useEffect(() => {
@@ -68,6 +72,25 @@ export default function TaiwanStockAgentPro() {
     const id = setInterval(() => setMsgIdx((i) => (i + 1) % LOAD_MSGS.length), 2200);
     return () => clearInterval(id);
   }, [aiLoading]);
+
+  // 開抽屜時抓自選股即時報價（清單變動也重抓；不輪詢）
+  useEffect(() => {
+    if (!showWatch || watchlist.length === 0) return;
+    let cancelled = false;
+    setQuotesLoading(true);
+    quickQuotes(watchlist.map((it) => it.code))
+      .then((map) => { if (!cancelled) setQuotes(map); })
+      .finally(() => { if (!cancelled) setQuotesLoading(false); });
+    return () => { cancelled = true; };
+  }, [showWatch, watchlist]);
+
+  const refreshQuotes = () => {
+    if (watchlist.length === 0) return;
+    setQuotesLoading(true);
+    quickQuotes(watchlist.map((it) => it.code))
+      .then(setQuotes)
+      .finally(() => setQuotesLoading(false));
+  };
 
   const loadFinmind = async (code) => {
     setActiveCode(code); setFm({ status: 'loading' });
@@ -141,6 +164,9 @@ export default function TaiwanStockAgentPro() {
     const q = `${stock.name} ${stock.code}`.trim();
     try {
       const providedData = buildProvidedData({ query: q, ticker: stock.code, companyName: stock.name, fmData: fm });
+      // 即時新聞：用公司名抓 Google News（命中台股中文新聞最準），缺名才退回完整查詢字串
+      const newsItems = liveSearch ? await googleNews(stock.name || q) : [];
+      const newsBlock = liveSearch ? buildNewsBlock(newsItems) : '';
       const apiKey = import.meta.env.VITE_OPENROUTER_API_KEY || '';
       const endpoint = import.meta.env.VITE_AI_ENDPOINT || 'https://openrouter.ai/api/v1/chat/completions';
       const model = import.meta.env.VITE_AI_MODEL || 'openrouter/free';
@@ -153,13 +179,10 @@ export default function TaiwanStockAgentPro() {
         model,
         messages: [
           { role: 'system', content: liveSearch ? LIVE_SEARCH_SYSTEM_PROMPT : LOCAL_DATA_SYSTEM_PROMPT },
-          { role: 'user', content: buildDataDrivenPrompt(q, providedData) },
+          { role: 'user', content: buildDataDrivenPrompt(q, providedData, newsBlock) },
         ],
         max_tokens: 1400,
         temperature: 0.35,
-        ...(liveSearch
-          ? { plugins: [{ id: 'web', engine: 'exa', max_results: 6, search_prompt: LIVE_SEARCH_PROMPT }] }
-          : {}),
       };
       const res = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(upstreamPayload) });
       if (!res.ok) {
@@ -172,7 +195,7 @@ export default function TaiwanStockAgentPro() {
       }
       const data = await res.json();
       const text = extractAiText(data);
-      const sources = liveSearch ? extractAiSources(data) : [];
+      const sources = liveSearch ? newsItems : [];
       const parsed = parseReport(text);
       if (parsed) {
         setResult({
@@ -219,6 +242,30 @@ export default function TaiwanStockAgentPro() {
     if (!curCode) return;
     setWatchlist((prev) => toggleWatch(prev, curCode, curName));
   };
+  // 回首頁：清掉目前個股，回到搜尋首頁
+  const goHome = () => {
+    setStock(null);
+    setResult(null);
+    setError(null);
+    setAiError(null);
+    setFm({ status: 'idle' });
+    setActiveCode(null);
+    setQuery('');
+  };
+  // 抽屜：點自選股 / 最近查詢 → 直接開股並關抽屜
+  const onDrawerSelect = (code, name) => {
+    setShowWatch(false);
+    openStock(`${name || ''} ${code}`.trim());
+  };
+  // 抽屜內搜尋 → 開股並關抽屜
+  const onDrawerSearch = (text) => {
+    setShowWatch(false);
+    openStock(text);
+  };
+  // 抽屜：移除自選
+  const onDrawerRemove = (code) => {
+    setWatchlist((prev) => toggleWatch(prev, code));
+  };
   const onSaveNote = (rec) => {
     if (!curCode) return;
     setNote(saveNote(curCode, rec));
@@ -258,7 +305,11 @@ export default function TaiwanStockAgentPro() {
       <div className="ts">
       <div className="sh">
           <header className="hd">
-            <div className="bd">
+            <button type="button" className="mbtn" onClick={() => setShowWatch(true)} title="自選股選單" aria-label="自選股選單">
+              <Menu size={20} />
+              {watchlist.length > 0 && <span className="badge">{watchlist.length}</span>}
+            </button>
+            <button type="button" className="bd bd-btn" onClick={goHome} title="回首頁" aria-label="回首頁">
               <span className="mk">
                 <img src="/app-icon.png" width="26" height="26" alt="App Icon" style={{ borderRadius: '4px' }} />
               </span>
@@ -266,11 +317,8 @@ export default function TaiwanStockAgentPro() {
                 <div className="tt">台股分析 <span className="ag">Spectrum</span></div>
                 <div className="su">大師買點檢查表 ‧ AI 數據解讀 ‧ Yahoo Finance 股價</div>
               </div>
-            </div>
-            <div className="lg" title="台股慣例：紅漲、綠跌">
-              <span className="li"><i className="dot u" />漲</span>
-              <span className="li"><i className="dot d" />跌</span>
-            </div>
+            </button>
+            <span className="hd-spacer" aria-hidden="true" />
           </header>
 
           <div className="ba">
@@ -571,16 +619,16 @@ export default function TaiwanStockAgentPro() {
                 {!result && !aiLoading && (
                   <div className="aicta">
                     <div className="aictah"><Sparkles size={18} />AI 深入分析（選用）</div>
-                    <div className="aictad">用上方已抓取的數據，整理基本面、消息面、產業地位、買點條件與風險。約 20–40 秒，按了才會執行。勾選「即時網路搜尋」那次才會聯網查最新新聞、才會計費。</div>
+                    <div className="aictad">用上方已抓取的數據，整理基本面、消息面、產業地位、買點條件與風險。約 20–40 秒，按了才會執行。勾選「即時新聞」那次才會用 Google News 抓最新新聞做消息面分析（免費）。</div>
                     <label className="aitoggle">
                       <input type="checkbox" checked={liveSearch} onChange={(e) => setLiveSearch(e.target.checked)} />
                       <span className="aiswitch" />
                       <span className="aitoggletx">
-                        即時網路搜尋<span className="aitoggled">多來源・附日期，每次多約 US$0.005（預設關）</span>
+                        即時新聞（Google News）<span className="aitoggled">抓近期新聞・附標題日期來源，免費（預設關）</span>
                       </span>
                     </label>
                     <button className="aibtn" onClick={runAi}>
-                      <Sparkles size={16} />{liveSearch ? '開始 AI 深入分析（含即時搜尋）' : '開始 AI 深入分析'}
+                      <Sparkles size={16} />{liveSearch ? '開始 AI 深入分析（含 Google 新聞）' : '開始 AI 深入分析'}
                     </button>
                   </div>
                 )}
@@ -636,11 +684,13 @@ export default function TaiwanStockAgentPro() {
 
                 {result?._sources?.length > 0 && (
                   <div className="srcs">
-                    <div className="srcsh"><Newspaper size={15} />新聞來源（即時搜尋）</div>
+                    <div className="srcsh"><Newspaper size={15} />新聞來源（Google News）</div>
                     {result._sources.map((s, i) => (
                       <a className="srcrow" key={i} href={s.url} target="_blank" rel="noopener noreferrer">
                         <span className="srctt">{s.title}</span>
-                        {s.date && <span className="srcdate">{s.date}</span>}
+                        {(s.source || s.date) && (
+                          <span className="srcdate">{[s.source, s.date].filter(Boolean).join(' ‧ ')}</span>
+                        )}
                       </a>
                     ))}
                   </div>
@@ -670,6 +720,23 @@ export default function TaiwanStockAgentPro() {
           latestClose={latestClose}
           onSave={onSaveNote}
           onClear={onClearNote}
+        />
+
+        <WatchlistDrawer
+          open={showWatch}
+          onClose={() => setShowWatch(false)}
+          watchlist={watchlist}
+          recent={recent}
+          quotes={quotes}
+          quotesLoading={quotesLoading}
+          currentCode={curCode}
+          currentName={curName}
+          currentWatched={watched}
+          onSelect={onDrawerSelect}
+          onSearch={onDrawerSearch}
+          onRemove={onDrawerRemove}
+          onRefresh={refreshQuotes}
+          onAddCurrent={onToggleWatch}
         />
       </div>
     </>
