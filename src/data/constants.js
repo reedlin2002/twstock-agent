@@ -70,7 +70,7 @@ export const SECTIONS = [
   { key: 'fundamental', title: '基本面', hint: '營收 · 獲利 · 財務體質', Icon: BarChart3 },
   { key: 'technical', title: '技術面', hint: '趨勢 · 均線 · 買點位置', Icon: Activity },
   { key: 'chips', title: '籌碼面', hint: '法人 · 融資融券', Icon: Users },
-  { key: 'news', title: '消息面', hint: '新聞 · 財報 · 事件', Icon: Newspaper },
+  { key: 'news', title: '消息面', hint: '新聞 · 事件（資料不足會標示）', Icon: Newspaper },
   { key: 'industry', title: '產業地位', hint: '產業趨勢 · 競爭', Icon: Layers },
 ];
 

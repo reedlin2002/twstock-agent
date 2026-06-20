@@ -49,7 +49,7 @@ export function computeTA(pr) {
 
   let regime, cls, verdict;
   if (c < MA60[i]) { regime = '弱勢／季線之下'; cls = 'avoid'; verdict = '收盤在季線之下，趨勢尚未轉強。Weinstein、Minervini 等方法在這階段多半「避開不買」，會等底部完成、重新站上長期均線再說。'; }
-  else if (trendPass >= 4 && hasTrig) { regime = '趨勢成形＋出現進場訊號'; cls = 'go'; verdict = '趨勢結構偏多，且近期出現大師方法認定的進場訊號——這通常被歸類為「可考慮的買進區」。但訊號≠保證，務必先設好停損再行動。'; }
+  else if (trendPass >= 4 && hasTrig) { regime = '趨勢成形＋出現進場訊號'; cls = 'go'; verdict = '趨勢結構偏多，且近期出現大師方法認定的進場訊號——這通常被歸類為「趨勢較強的觀察區」。但訊號≠保證，這只是條件提醒、不是買賣建議，務必先設好停損並自行評估。'; }
   else if (trendPass >= 4) { regime = '趨勢偏多，暫無明確訊號'; cls = 'wait'; verdict = '均線多頭、位置偏強，但近期沒有明確的突破或低檔轉折訊號。大師做法多會「等拉回到上彎均線獲得支撐，或帶量突破前高」再進場，而非追高。'; }
   else { regime = '中性整理'; cls = 'neutral'; verdict = '部分條件符合、部分未到位，屬於整理格局。可放進觀察清單，等趨勢與量能進一步轉強、出現明確買點再說。'; }
 
@@ -116,8 +116,8 @@ export const planSummary = (ta) => {
   }
   if (p.cls === 'go') {
     return {
-      title: '可觀察買點，不追高',
-      detail: '條件偏多，重點是等價格回到觀察區或突破後回測守住。',
+      title: '趨勢較強，觀察不追高',
+      detail: '條件偏多，重點是等價格回到觀察區或突破後回測守住，這是觀察提醒不是買賣建議。',
     };
   }
   if (p.cls === 'wait') {

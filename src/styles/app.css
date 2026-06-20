@@ -180,3 +180,97 @@
 @keyframes splashIn{0%{opacity:0;transform:scale(.94);}100%{opacity:1;transform:scale(1);}}
 @keyframes splashGlow{0%{opacity:0;transform:scale(.7);}60%{opacity:1;}100%{opacity:.85;transform:scale(1);}}
 @media(prefers-reduced-motion:reduce){.splash-logo,.splash-glow{animation:none;}}
+/* ===== 個人化：自選股 / 最近查詢列 ===== */
+.qbar{display:flex;align-items:flex-start;gap:9px;margin-top:11px;}
+.qbl{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--faint);font-family:var(--fm);white-space:nowrap;padding-top:8px;flex:none;}
+.qbl svg{color:var(--gold);}
+.qchips{display:flex;flex-wrap:wrap;gap:8px;min-width:0;}
+/* ===== 結果頁標題列動作（收藏/我的紀錄/複製） ===== */
+.qacts{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;}
+.qbtn{display:inline-flex;align-items:center;gap:6px;background:var(--ink3);border:1px solid var(--line);color:var(--dim);border-radius:9px;padding:7px 13px;font-size:12.5px;cursor:pointer;font-family:var(--fcjk);transition:all .15s;}
+.qbtn:hover{border-color:var(--gold);color:var(--pap);}
+.qbtn:disabled{opacity:.45;cursor:not-allowed;}
+.qbtn.on{border-color:rgba(226,166,54,.5);color:#F0D89A;background:var(--golds);}
+.qbtn svg{flex:none;}
+/* ===== 近期數據事件 ===== */
+.evs{display:flex;flex-direction:column;gap:8px;margin-top:6px;}
+.ev{display:flex;align-items:flex-start;gap:10px;background:var(--ink3);border:1px solid var(--line);border-radius:10px;padding:9px 12px;font-size:13px;color:var(--dim);line-height:1.6;}
+.ev .evd{width:7px;height:7px;border-radius:50%;background:var(--faint);margin-top:7px;flex:none;}
+.ev.pos .evd{background:var(--gold);}
+.ev.neg .evd{background:var(--up);}
+.ev.neutral .evd{background:var(--blue);}
+.insuf{display:inline-block;font-size:12.5px;color:var(--faint);background:var(--ink3);border:1px dashed var(--line);border-radius:9px;padding:9px 12px;line-height:1.6;}
+/* ===== 個人紀錄彈窗表單 ===== */
+.nm-code{font-family:var(--fm);font-size:13px;color:var(--gold);font-weight:600;margin-left:4px;}
+.nm-hold{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--ink2);border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin-bottom:14px;}
+.nm-toggle{display:inline-flex;align-items:center;gap:6px;background:var(--ink3);border:1px solid var(--line);color:var(--dim);border-radius:8px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--fcjk);transition:all .15s;}
+.nm-toggle.on{background:var(--gold);color:#1A1206;border-color:var(--gold);}
+.nm-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;}
+.nm-field{display:flex;flex-direction:column;gap:6px;min-width:0;}
+.nm-field.nm-full{margin-bottom:14px;}
+.nm-lab{font-size:12px;color:var(--faint);font-family:var(--fm);}
+.nm-in,.nm-ta{width:100%;background:var(--ink2);border:1px solid var(--line);border-radius:10px;color:var(--pap);font-size:14px;font-family:var(--fcjk);padding:10px 12px;outline:none;transition:border-color .2s,box-shadow .2s;}
+.nm-in:focus,.nm-ta:focus{border-color:var(--gold);box-shadow:0 0 0 3px var(--golds);}
+.nm-ta{resize:vertical;min-height:46px;line-height:1.6;}
+.nm-in::placeholder,.nm-ta::placeholder{color:var(--faint);}
+.nm-pnl{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--ink2);border:1px solid var(--line);border-radius:11px;padding:11px 14px;margin-bottom:14px;font-size:12.5px;color:var(--dim);}
+.nm-pnl b{font-family:var(--fm);font-size:16px;}
+.nm-pnl b.u{color:var(--up);}.nm-pnl b.d{color:var(--dn);}
+.nm-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:6px;}
+.nm-clear{display:inline-flex;align-items:center;gap:6px;background:transparent;border:1px solid rgba(224,65,60,.35);color:#FF9B97;border-radius:9px;padding:9px 14px;font-size:13px;cursor:pointer;font-family:var(--fcjk);transition:all .15s;}
+.nm-clear:hover{background:var(--ups);}
+.nm-save{display:inline-flex;align-items:center;gap:6px;background:var(--gold);color:#1A1206;border:none;border-radius:9px;padding:10px 22px;font-size:14px;font-weight:700;cursor:pointer;font-family:var(--fcjk);transition:filter .15s,transform .05s;}
+.nm-save:hover{filter:brightness(1.08);}.nm-save:active{transform:translateY(1px);}
+.nm-tip{margin-top:12px;font-size:11px;color:var(--faint);font-family:var(--fm);text-align:center;line-height:1.6;}
+@media(max-width:430px){.nm-grid{grid-template-columns:1fr;}.qbl{padding-top:7px;}}
+/* ===== v2：標題即時價格讀數 ===== */
+.prc{display:flex;align-items:baseline;flex-wrap:wrap;gap:10px;margin-top:12px;}
+.prv{font-family:var(--fm);font-size:26px;font-weight:800;color:var(--pap);line-height:1;}
+.prc-chg{font-family:var(--fm);font-size:14px;font-weight:700;}
+.prc-chg.u{color:var(--up);}.prc-chg.d{color:var(--dn);}
+.prd{font-size:11px;color:var(--faint);font-family:var(--fm);margin-left:auto;}
+/* ===== v2：持股條件提醒卡 ===== */
+.hold{margin-top:14px;background:var(--ink2);border:1px solid var(--line);border-radius:15px;padding:15px 17px;}
+.hold .holdh{display:flex;align-items:center;gap:10px;margin-bottom:12px;}
+.hold .holdh .ic{width:28px;height:28px;border-radius:8px;background:var(--golds);color:var(--gold);display:flex;align-items:center;justify-content:center;flex:none;}
+.hold .holdh h3{font-size:14px;font-weight:700;}
+.holde{margin-left:auto;background:var(--ink3);border:1px solid var(--line);color:var(--dim);border-radius:8px;padding:5px 12px;font-size:12px;cursor:pointer;font-family:var(--fcjk);transition:all .15s;}
+.holde:hover{border-color:var(--gold);color:var(--pap);}
+.holdgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:9px;}
+.holdi{background:var(--ink3);border:1px solid var(--line);border-radius:10px;padding:9px 12px;min-width:0;}
+.holdi .k{font-size:11px;color:var(--faint);}
+.holdi .v{font-size:16px;font-weight:700;font-family:var(--fm);margin-top:3px;overflow-wrap:anywhere;}
+.holdi .v.u{color:var(--up);}.holdi .v.d{color:var(--dn);}
+.holdi .v .sub{font-size:12px;font-weight:600;margin-left:3px;}
+.holda{display:flex;align-items:flex-start;gap:9px;border-radius:10px;padding:10px 13px;margin-top:10px;font-size:13px;line-height:1.6;}
+.holda svg{flex:none;margin-top:2px;}
+.holda.warn{background:var(--ups);border:1px solid rgba(224,65,60,.4);color:#FFD9D7;}
+.holda.info{background:rgba(90,169,255,.08);border:1px solid rgba(90,169,255,.32);color:#CFE3FF;}
+.holdn{margin-top:9px;font-size:12.5px;color:var(--dim);background:var(--ink3);border:1px solid var(--line);border-radius:9px;padding:8px 12px;}
+/* ===== v2：AI 深入分析 CTA ===== */
+.aisec{min-width:0;}
+.aicta{margin-top:16px;text-align:center;background:linear-gradient(180deg,rgba(226,166,54,.10),var(--ink2));border:1px solid rgba(226,166,54,.34);border-radius:16px;padding:22px 20px;}
+.aictah{display:inline-flex;align-items:center;gap:8px;font-size:16px;font-weight:800;color:#F0D89A;}
+.aictad{font-size:12.5px;color:var(--dim);line-height:1.7;margin:9px auto 16px;max-width:440px;}
+.aibtn{display:inline-flex;align-items:center;gap:8px;background:var(--gold);color:#1A1206;border:none;border-radius:12px;padding:12px 26px;font-size:15px;font-weight:700;cursor:pointer;font-family:var(--fcjk);transition:filter .15s,transform .05s;}
+.aibtn:hover{filter:brightness(1.08);}.aibtn:active{transform:translateY(1px);}
+
+/* 即時網路搜尋開關 */
+.aitoggle{display:inline-flex;align-items:center;gap:10px;cursor:pointer;margin:0 auto 16px;padding:10px 14px;background:rgba(0,0,0,.18);border:1px solid rgba(226,166,54,.22);border-radius:12px;text-align:left;max-width:440px;}
+.aitoggle input{position:absolute;opacity:0;width:0;height:0;}
+.aiswitch{flex:none;position:relative;width:38px;height:21px;border-radius:999px;background:#3A3025;transition:background .18s;}
+.aiswitch::after{content:"";position:absolute;top:2px;left:2px;width:17px;height:17px;border-radius:50%;background:#C9BFA8;transition:transform .18s,background .18s;}
+.aitoggle input:checked+.aiswitch{background:var(--gold);}
+.aitoggle input:checked+.aiswitch::after{transform:translateX(17px);background:#1A1206;}
+.aitoggle input:focus-visible+.aiswitch{outline:2px solid var(--gold);outline-offset:2px;}
+.aitoggletx{display:flex;flex-direction:column;font-size:13.5px;font-weight:700;color:#F0D89A;line-height:1.4;}
+.aitoggled{font-size:11.5px;font-weight:500;color:var(--dim);}
+
+/* 新聞來源清單（即時搜尋） */
+.srcs{margin-top:14px;background:var(--ink2);border:1px solid var(--line);border-radius:14px;padding:14px 16px;}
+.srcsh{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:800;color:#F0D89A;margin-bottom:10px;}
+.srcrow{display:flex;align-items:baseline;gap:10px;justify-content:space-between;padding:8px 0;border-top:1px solid var(--line);text-decoration:none;color:var(--pap);transition:color .15s;}
+.srcrow:first-of-type{border-top:none;}
+.srcrow:hover .srctt{color:var(--gold);text-decoration:underline;}
+.srctt{font-size:12.5px;line-height:1.5;}
+.srcdate{flex:none;font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums;}

@@ -206,6 +206,8 @@ const aiProxy = (env) => ({
           messages: buildMessages(body),
           max_tokens: body.max_tokens ?? body.max_completion_tokens ?? 1000,
           temperature: body.temperature ?? 0.35,
+          // 轉發即時網路搜尋設定（OpenRouter web plugin），proxy 路徑也能用
+          ...(Array.isArray(body.plugins) ? { plugins: body.plugins } : {}),
         };
 
         const headers = {

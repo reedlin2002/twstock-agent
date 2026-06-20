@@ -272,3 +272,34 @@ export const extractAiText = (data) => {
   }
   return '';
 };
+
+// 從 OpenRouter web 搜尋回應取出來源（message.annotations 的 url_citation）
+// 回傳 [{ url, title, date }]，以 url 去重；date 盡量從 title/content 抓，抓不到就省略
+const pickCitationDate = (text) => {
+  if (!text) return null;
+  const iso = text.match(/(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (iso) return `${iso[1]}-${String(iso[2]).padStart(2, '0')}-${String(iso[3]).padStart(2, '0')}`;
+  const cn = text.match(/(20\d{2})\s*年\s*(\d{1,2})\s*月(?:\s*(\d{1,2})\s*日)?/);
+  if (cn) return cn[3] ? `${cn[1]}-${String(cn[2]).padStart(2, '0')}-${String(cn[3]).padStart(2, '0')}` : `${cn[1]}-${String(cn[2]).padStart(2, '0')}`;
+  return null;
+};
+
+export const extractAiSources = (data) => {
+  const annotations = data?.choices?.[0]?.message?.annotations;
+  if (!Array.isArray(annotations)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const a of annotations) {
+    if (a?.type !== 'url_citation') continue;
+    const c = a.url_citation || {};
+    const url = c.url;
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    out.push({
+      url,
+      title: (c.title || url).trim(),
+      date: pickCitationDate(c.title) || pickCitationDate(c.content) || null,
+    });
+  }
+  return out;
+};
