@@ -206,6 +206,11 @@
 .nm-toggle{display:inline-flex;align-items:center;gap:6px;background:var(--ink3);border:1px solid var(--line);color:var(--dim);border-radius:8px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--fcjk);transition:all .15s;}
 .nm-toggle.on{background:var(--gold);color:#1A1206;border-color:var(--gold);}
 .nm-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;}
+.nm-plan{display:inline-flex;align-items:center;gap:7px;background:var(--golds);border:1px solid rgba(226,166,54,.4);color:#F0D89A;border-radius:9px;padding:9px 13px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:var(--fcjk);margin:-2px 0 14px;transition:filter .15s;}
+.nm-plan:hover{filter:brightness(1.1);}
+.nm-plan svg{flex:none;}
+.nm-alert{margin-bottom:8px;padding-top:4px;border-top:1px solid var(--line);}
+.nm-alert-row{margin-bottom:10px;padding-top:8px;}
 .nm-field{display:flex;flex-direction:column;gap:6px;min-width:0;}
 .nm-field.nm-full{margin-bottom:14px;}
 .nm-lab{font-size:12px;color:var(--faint);font-family:var(--fm);}
@@ -331,6 +336,49 @@
 .wl-chip:hover{border-color:var(--gold);color:var(--pap);}
 .wl-chip .wl-code{font-family:var(--fm);font-size:11px;color:var(--faint);}
 .wl-foot{margin-top:22px;padding-top:14px;border-top:1px solid var(--line);font-size:11px;color:var(--faint);line-height:1.7;}
+/* 群組版抽屜：新增群組、群組分區、總覽、個股選單、備份 */
+.wl-newgrp{display:flex;align-items:center;gap:6px;margin-bottom:12px;background:var(--ink2);border:1px solid var(--gold);border-radius:11px;padding:0 8px 0 12px;box-shadow:0 0 0 3px var(--golds);}
+.wl-mini{flex:none;background:transparent;border:none;color:var(--faint);cursor:pointer;padding:5px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;font-family:var(--fm);min-width:24px;transition:background .15s,color .15s;}
+.wl-mini:hover{background:var(--ink3);color:var(--pap);}
+.wl-mini:disabled{opacity:.3;cursor:not-allowed;}
+.wl-mini.on{color:var(--gold);}.wl-mini.on:hover{background:var(--golds);}
+.wl-mini.danger{color:var(--dim);}.wl-mini.danger:hover{background:var(--ups);color:var(--up);}
+.wl-addwrap{position:relative;}
+.wl-pick{display:flex;flex-direction:column;gap:2px;background:var(--ink3);border:1px solid var(--line);border-radius:11px;padding:6px;margin:-6px 0 14px;}
+.wl-pick-it{text-align:start;background:transparent;border:none;color:var(--dim);font-size:13px;padding:9px 11px;border-radius:8px;cursor:pointer;font-family:var(--fcjk);}
+.wl-pick-it:hover{background:var(--ink2);color:var(--pap);}
+.wl-group{margin-bottom:14px;}
+.wl-group-hd{display:flex;align-items:center;gap:7px;padding:6px 2px 8px;border-bottom:1px solid var(--line);margin-bottom:9px;}
+.wl-group-tt{flex:1;min-width:0;display:flex;align-items:center;gap:6px;background:transparent;border:none;color:var(--pap);cursor:pointer;padding:0;font-family:var(--fcjk);}
+.wl-group-tt svg{color:var(--faint);flex:none;}
+.wl-group-name{font-size:14px;font-weight:800;display:flex;align-items:baseline;gap:6px;overflow:hidden;white-space:nowrap;}
+.wl-group-n{font-family:var(--fm);font-size:11px;color:var(--faint);font-weight:600;}
+.wl-rename{padding:5px 0;font-size:14px;font-weight:700;}
+.wl-ov{display:flex;align-items:center;gap:6px;font-family:var(--fm);font-size:10.5px;font-weight:700;flex:none;}
+.wl-ov .u{color:var(--up);}.wl-ov .d{color:var(--dn);}
+.wl-ov.dim{color:var(--faint);font-weight:600;}
+.wl-group-acts{display:flex;align-items:center;gap:1px;flex:none;}
+.wl-group-empty{font-size:11.5px;color:var(--faint);line-height:1.6;padding:2px 4px 8px;}
+.wl-row{position:relative;}
+.wl-main{flex:1;min-width:0;display:flex;align-items:center;gap:10px;cursor:pointer;}
+.wl-itemmenu{position:absolute;top:calc(100% - 4px);inset-inline-end:6px;z-index:5;width:184px;background:var(--ink3);border:1px solid var(--line);border-radius:11px;padding:6px;box-shadow:0 10px 28px rgba(0,0,0,.5);}
+.wl-itemmenu-sec{display:flex;align-items:center;gap:5px;font-size:10.5px;color:var(--faint);font-family:var(--fm);padding:4px 8px 6px;}
+.wl-itemmenu-it{display:block;width:100%;text-align:start;background:transparent;border:none;color:var(--dim);font-size:13px;padding:8px 10px;border-radius:8px;cursor:pointer;font-family:var(--fcjk);}
+.wl-itemmenu-it:hover{background:var(--ink2);color:var(--pap);}
+.wl-itemmenu-row{display:flex;align-items:center;gap:4px;border-top:1px solid var(--line);margin-top:5px;padding-top:7px;}
+.wl-itemmenu-row .wl-mini.danger{margin-inline-start:auto;gap:4px;padding:5px 8px;}
+.wl-backup{margin-top:18px;}
+.wl-sec-btn{width:100%;background:transparent;border:none;cursor:pointer;justify-content:flex-start;}
+.wl-backup-bd{display:flex;flex-direction:column;gap:9px;background:var(--ink2);border:1px solid var(--line);border-radius:12px;padding:12px;}
+.wl-backup-bd .wl-add{margin-bottom:0;}
+.wl-ta{width:100%;box-sizing:border-box;background:var(--ink);border:1px solid var(--line);border-radius:10px;color:var(--pap);font-size:12px;font-family:var(--fm);padding:9px 11px;resize:vertical;outline:none;}
+.wl-ta:focus{border-color:var(--gold);}
+.wl-backup-acts{display:flex;gap:8px;}
+.wl-mini2{flex:1;background:var(--ink3);border:1px solid var(--line);color:var(--dim);border-radius:9px;padding:9px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:var(--fcjk);transition:all .15s;}
+.wl-mini2:hover:not(:disabled){border-color:var(--gold);color:var(--pap);}
+.wl-mini2:disabled{opacity:.4;cursor:not-allowed;}
+.wl-mini2.danger:hover:not(:disabled){border-color:var(--up);color:var(--up);}
+.wl-backup-hint{font-size:11.5px;color:var(--dim);line-height:1.6;}
 @media(max-width:480px){.wl-panel{width:100%;max-width:100%;}}
 @media(prefers-reduced-motion:reduce){.wl-panel{transition:none;}.wl-sk{animation:none;}}
 /* ===== v4：首頁單行熱門 + 結果頁摘要列 + AI 置頂 + 詳細數據彈窗 ===== */
@@ -350,6 +398,47 @@
 .aitop .aitoggle{margin:0;max-width:none;width:100%;}
 .aitop-hint{display:flex;align-items:flex-start;gap:6px;font-size:11.5px;color:var(--dim);line-height:1.6;}
 .aitop-hint svg{flex:none;margin-top:2px;color:var(--gold);}
+/* 我的部位（個人化進出場）輸入面板 */
+.pos{margin-top:10px;background:var(--ink2);border:1px solid var(--line);border-radius:14px;padding:13px 14px;transition:border-color .2s,box-shadow .2s;}
+.pos.on{border-color:rgba(226,166,54,.45);box-shadow:0 0 0 3px var(--golds);}
+.pos-hd{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:11px;}
+.pos-tt{display:flex;align-items:center;gap:7px;font-size:13.5px;font-weight:700;color:var(--pap);}
+.pos-tt svg{color:var(--gold);}
+.pos-switch{display:inline-flex;align-items:center;gap:8px;cursor:pointer;}
+.pos-switch input{position:absolute;opacity:0;width:0;height:0;}
+.pos-switch input:checked+.aiswitch{background:var(--gold);}
+.pos-switch input:checked+.aiswitch::after{transform:translateX(17px);background:#1A1206;}
+.pos-switch input:focus-visible+.aiswitch{outline:2px solid var(--gold);outline-offset:2px;}
+.pos-switch-tx{font-size:12px;color:var(--dim);font-weight:600;}
+.pos-seg{display:flex;gap:6px;background:var(--ink);border:1px solid var(--line);border-radius:10px;padding:3px;margin-bottom:11px;}
+.pos-seg button{flex:1;background:transparent;border:none;color:var(--dim);font-size:13px;font-weight:700;padding:8px;border-radius:8px;cursor:pointer;font-family:var(--fcjk);transition:all .15s;}
+.pos-seg button.on{background:var(--golds);color:#F0D89A;}
+.pos-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:11px;}
+.pos-f{display:flex;flex-direction:column;gap:5px;}
+.pos-f span{font-size:11px;color:var(--faint);font-weight:600;}
+.pos-f input{background:var(--ink);border:1px solid var(--line);border-radius:9px;color:var(--pap);font-size:14px;font-family:var(--fm);padding:9px 11px;outline:none;width:100%;box-sizing:border-box;}
+.pos-f input:focus{border-color:var(--gold);}
+.pos-calc{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:8px;}
+.pos-chip{font-family:var(--fm);font-size:12px;font-weight:700;color:var(--pap);background:var(--ink);border:1px solid var(--line);border-radius:8px;padding:5px 9px;display:inline-flex;align-items:center;gap:5px;}
+.pos-chip b{font-weight:600;color:var(--faint);font-family:var(--fcjk);font-size:10.5px;}
+.pos-chip.u{color:var(--up);}.pos-chip.d{color:var(--dn);}
+.pos-warn{font-size:11.5px;color:#E7B24A;line-height:1.6;background:rgba(226,166,54,.08);border-radius:7px;padding:6px 9px;margin-top:6px;}
+.pos-hint{display:flex;align-items:flex-start;gap:6px;font-size:11px;color:var(--dim);line-height:1.6;margin-top:9px;}
+.pos-hint svg{flex:none;margin-top:2px;color:var(--gold);}
+/* AI 個人化進出場結果卡（沿用買點卡視覺） */
+.posai{background:linear-gradient(180deg,rgba(90,169,255,.08),var(--ink2));border:1px solid rgba(90,169,255,.3);border-radius:15px;padding:17px 18px;margin-top:14px;}
+.posai .h{display:flex;align-items:center;gap:10px;margin-bottom:9px;}
+.posai .ic{width:32px;height:32px;border-radius:9px;background:rgba(90,169,255,.14);color:#7FBBFF;display:flex;align-items:center;justify-content:center;flex:none;}
+.posai h3{font-size:15px;font-weight:700;color:#AFD2FF;}
+.posai .b{font-size:14px;color:var(--pap);line-height:1.75;white-space:pre-wrap;}
+/* Samsung 省電提醒卡 */
+.battip{display:flex;align-items:flex-start;gap:11px;margin-top:14px;background:linear-gradient(180deg,rgba(226,166,54,.1),var(--ink2));border:1px solid rgba(226,166,54,.32);border-radius:13px;padding:13px 14px;}
+.battip-ic{flex:none;color:var(--gold);margin-top:1px;}
+.battip-bd{flex:1;min-width:0;}
+.battip-t{font-size:13.5px;font-weight:700;color:#F0D89A;margin-bottom:4px;}
+.battip-d{font-size:12px;color:var(--dim);line-height:1.65;}
+.battip-x{flex:none;background:transparent;border:none;color:var(--faint);cursor:pointer;padding:4px;border-radius:7px;display:flex;}
+.battip-x:hover{background:var(--ink3);color:var(--pap);}
 /* 摘要數字列（明細收進詳細數據彈窗） */
 .sumstrip{margin-top:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--ink2);border:1px solid var(--line);border-radius:13px;padding:11px 13px;}
 .sumchips{display:flex;flex-wrap:wrap;gap:7px;flex:1;min-width:0;}

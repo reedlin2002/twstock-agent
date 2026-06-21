@@ -3,7 +3,7 @@
 const KEYMAP = {
   NAME: 'name', TICKER: 'ticker', EXCHANGE: 'exchange', SECTOR: 'sector', SNAPSHOT: 'snapshot',
   FUNDAMENTAL: 'fundamental', TECHNICAL: 'technical', CHIPS: 'chips', NEWS: 'news',
-  INDUSTRY: 'industry', BUYPOINT: 'buyPoint', RISKS: 'risks', DATANOTE: 'dataNote',
+  INDUSTRY: 'industry', BUYPOINT: 'buyPoint', POSITION: 'position', RISKS: 'risks', DATANOTE: 'dataNote',
 };
 
 // AI 偶爾會把提示詞/JSON 裡的內部資料欄位名（providedData.* / tradePlan 等）寫進內文，
@@ -18,6 +18,7 @@ const LEAK_TERMS = [
   [/providedData\s*\.\s*industry/gi, '產業數據'],
   [/providedData\s*\.\s*news/gi, '新聞資料'],
   [/providedData(?:\s*\.\s*[a-zA-Z]+)*/gi, '提供的數據'],
+  [/\buserPosition\b/gi, '你的部位'],
   [/\btechnical\s*\.\s*tradePlan/gi, '買賣計畫'],
   [/\btradePlan\b/gi, '買賣計畫'],
   [/\bpriceSeries\b/gi, '股價走勢'],

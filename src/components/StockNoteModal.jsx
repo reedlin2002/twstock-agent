@@ -2,15 +2,26 @@
  * 資料以 localStorage 保存（由 App 透過 onSave / onClear 寫入）。
  */
 import { useEffect, useState } from 'react';
-import { Notebook, X, Trash2, Check } from 'lucide-react';
+import { Notebook, X, Trash2, Check, Wand2, BellRing } from 'lucide-react';
 import { useScrollLock } from '../lib/useScrollLock.js';
 import { DEFAULT_NOTE } from '../lib/storage.js';
 import { computePnl } from '../lib/holdingStatus.js';
 import { pf } from '../lib/format.js';
 
-export default function StockNoteModal({ open, onClose, code, name, record, latestClose, onSave, onClear }) {
+export default function StockNoteModal({ open, onClose, code, name, record, latestClose, tradePlan, onSave, onClear }) {
   useScrollLock(open);
   const [draft, setDraft] = useState(DEFAULT_NOTE);
+
+  // 一鍵帶入系統買賣計畫：填停損/停利；未持有且買價空白時，順手帶入觀察區上緣當預計買價
+  const fillFromPlan = () => {
+    if (!tradePlan) return;
+    setDraft((p) => ({
+      ...p,
+      stopLoss: tradePlan.stopLine != null ? String(tradePlan.stopLine) : p.stopLoss,
+      takeProfit: tradePlan.takeProfit1 != null ? String(tradePlan.takeProfit1) : p.takeProfit,
+      buyPrice: (!p.held && !String(p.buyPrice || '').trim() && tradePlan.entryHigh != null) ? String(tradePlan.entryHigh) : p.buyPrice,
+    }));
+  };
 
   // 開啟或切換股票時，把表單重置成該股目前的紀錄
   useEffect(() => {
@@ -77,6 +88,31 @@ export default function StockNoteModal({ open, onClose, code, name, record, late
           <div className="nm-grid">
             {field('stopLoss', '預計停損', { placeholder: '例如 85 或 跌破季線' })}
             {field('takeProfit', '預計停利', { placeholder: '例如 110 或 +20%' })}
+          </div>
+
+          {tradePlan && (tradePlan.stopLine != null || tradePlan.takeProfit1 != null) && (
+            <button type="button" className="nm-plan" onClick={fillFromPlan}>
+              <Wand2 size={13} />帶入系統買賣計畫（停損 {pf(tradePlan.stopLine)}／停利 {pf(tradePlan.takeProfit1)}）
+            </button>
+          )}
+
+          <div className="nm-alert">
+            <div className="nm-hold nm-alert-row">
+              <span className="nm-lab"><BellRing size={13} style={{ verticalAlign: '-2px', marginInlineEnd: 4 }} />到價推播提醒</span>
+              <button
+                type="button"
+                className={`nm-toggle ${draft.alertOn ? 'on' : ''}`}
+                onClick={() => setDraft((p) => ({ ...p, alertOn: !p.alertOn }))}
+              >
+                {draft.alertOn ? <><Check size={14} />已開啟</> : '關閉'}
+              </button>
+            </div>
+            {draft.alertOn && (
+              <>
+                {field('alertTarget', '目標價（額外上方提醒，可留白）', { inputMode: 'decimal', placeholder: '例如 120，碰到就推播' })}
+                <div className="nm-tip">盤中每約 15 分鐘背景檢查，價格碰到上方停損／停利或目標價就推播。需允許通知，並在系統設定關閉本 App 的省電最佳化才會穩定。</div>
+              </>
+            )}
           </div>
 
           {area('reason', '買進理由', '當初為什麼想買 / 看好什麼')}

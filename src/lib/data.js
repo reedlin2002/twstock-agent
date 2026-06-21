@@ -2,6 +2,7 @@
 import { computeTA, rollMean } from './technicals.js';
 import { roundMaybe } from './format.js';
 import { EXAMPLES } from '../data/constants.js';
+import { useDevProxy, pickUrl, fetchJson, fetchText, yahooSymbols } from './net.js';
 
 const FINMIND_ENDPOINT = 'https://api.finmindtrade.com/api/v4/data';
 const YAHOO_CHART_ENDPOINT = 'https://query1.finance.yahoo.com/v8/finance/chart';
@@ -38,79 +39,40 @@ const parseYahooChart = (payload, symbol) => {
 };
 
 const fetchYahooQuote = async (symbol) => {
-  try {
-    const upstream = await fetch(`${YAHOO_QUOTE_ENDPOINT}?symbols=${encodeURIComponent(symbol)}`);
-    if (!upstream.ok) return {};
-    const payload = await upstream.json();
-    return payload?.quoteResponse?.result?.[0] || {};
-  } catch {
-    return {};
-  }
+  const payload = await fetchJson(`${YAHOO_QUOTE_ENDPOINT}?symbols=${encodeURIComponent(symbol)}`);
+  return payload?.quoteResponse?.result?.[0] || {};
 };
 
 export async function finmind(dataset, id, start, token) {
   let q = `dataset=${dataset}&data_id=${id}&start_date=${start}`;
   if (token) q += `&token=${encodeURIComponent(token)}`;
-
-  const isNative = typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.();
-  if (!isNative && import.meta.env.DEV) {
-    try {
-      const r = await fetch(`/api/finmind?${q}`);
-      if (!r.ok) return null;
-      const j = await r.json();
-      return j && Array.isArray(j.data) ? j.data : null;
-    } catch {
-      return null;
-    }
-  }
-
-  try {
-    const r = await fetch(`${FINMIND_ENDPOINT}?${q}`);
-    if (!r.ok) return null;
-    const j = await r.json();
-    return j && Array.isArray(j.data) ? j.data : null;
-  } catch {
-    return null;
-  }
+  const j = await fetchJson(pickUrl(`/api/finmind?${q}`, `${FINMIND_ENDPOINT}?${q}`));
+  return j && Array.isArray(j.data) ? j.data : null;
 }
 
 export async function yahooPrice(code) {
-  const isNative = typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.();
-
-  if (!isNative && import.meta.env.DEV) {
-    try {
-      const r = await fetch(`/api/yahoo-price?code=${encodeURIComponent(code)}&range=2y&interval=1d`);
-      if (!r.ok) return null;
-      const j = await r.json();
-      return j && Array.isArray(j.rows) && j.rows.length ? j : null;
-    } catch {
-      return null;
-    }
+  // dev 瀏覽器：proxy 會在 server 端輪詢 .TW/.TWO 並回最完整的一檔
+  if (useDevProxy()) {
+    const j = await fetchJson(`/api/yahoo-price?code=${encodeURIComponent(code)}&range=2y&interval=1d`);
+    return j && Array.isArray(j.rows) && j.rows.length ? j : null;
   }
 
-  try {
-    const symbols = code.endsWith('.TW') || code.endsWith('.TWO')
-      ? [code]
-      : [`${code}.TW`, `${code}.TWO`];
-
-    for (const symbol of symbols) {
-      const r = await fetch(`${YAHOO_CHART_ENDPOINT}/${encodeURIComponent(symbol)}?range=2y&interval=1d&events=history&includeAdjustedClose=true`);
-      const payload = await r.json();
-      const parsed = parseYahooChart(payload, symbol);
-      if (r.ok && parsed.rows.length >= 60) {
-        const quote = await fetchYahooQuote(symbol);
-        return {
-          ...parsed,
-          name: quote.longName || quote.shortName || quote.displayName || null,
-          shortName: quote.shortName || null,
-          longName: quote.longName || null,
-        };
-      }
+  // native / 正式：client 端輪詢 symbol
+  for (const symbol of yahooSymbols(code)) {
+    const payload = await fetchJson(`${YAHOO_CHART_ENDPOINT}/${encodeURIComponent(symbol)}?range=2y&interval=1d&events=history&includeAdjustedClose=true`);
+    if (!payload) continue;
+    const parsed = parseYahooChart(payload, symbol);
+    if (parsed.rows.length >= 60) {
+      const quote = await fetchYahooQuote(symbol);
+      return {
+        ...parsed,
+        name: quote.longName || quote.shortName || quote.displayName || null,
+        shortName: quote.shortName || null,
+        longName: quote.longName || null,
+      };
     }
-    return null;
-  } catch {
-    return null;
   }
+  return null;
 }
 
 // 輕量報價：只抓近幾日（range=5d），給自選股清單即時顯示用，比 yahooPrice（2 年）省很多。
@@ -130,31 +92,18 @@ export async function yahooQuote(code) {
     return { code: c, symbol: symbol || null, close: last.close, prevClose, chg, chgPct, date: last.date };
   };
 
-  const isNative = typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.();
-
-  if (!isNative && import.meta.env.DEV) {
-    try {
-      const r = await fetch(`/api/yahoo-quote?code=${encodeURIComponent(c)}`);
-      if (!r.ok) return null;
-      const j = await r.json();
-      return fromRows(j?.rows, j?.symbol);
-    } catch {
-      return null;
-    }
+  if (useDevProxy()) {
+    const j = await fetchJson(`/api/yahoo-quote?code=${encodeURIComponent(c)}`);
+    return j ? fromRows(j.rows, j.symbol) : null;
   }
 
-  try {
-    const symbols = c.endsWith('.TW') || c.endsWith('.TWO') ? [c] : [`${c}.TW`, `${c}.TWO`];
-    for (const symbol of symbols) {
-      const r = await fetch(`${YAHOO_CHART_ENDPOINT}/${encodeURIComponent(symbol)}?range=5d&interval=1d&includeAdjustedClose=true`);
-      const payload = await r.json();
-      const parsed = parseYahooChart(payload, symbol);
-      if (r.ok && parsed.rows.length) return fromRows(parsed.rows, symbol);
-    }
-    return null;
-  } catch {
-    return null;
+  for (const symbol of yahooSymbols(c)) {
+    const payload = await fetchJson(`${YAHOO_CHART_ENDPOINT}/${encodeURIComponent(symbol)}?range=5d&interval=1d&includeAdjustedClose=true`);
+    if (!payload) continue;
+    const parsed = parseYahooChart(payload, symbol);
+    if (parsed.rows.length) return fromRows(parsed.rows, symbol);
   }
+  return null;
 }
 
 // 批次抓多檔報價，回 { [code]: quote|null }
@@ -246,7 +195,7 @@ export const resolveTickerAsync = async (q) => {
   return null;
 };
 
-export const buildProvidedData = ({ query, ticker, companyName, fmData }) => {
+export const buildProvidedData = ({ query, ticker, companyName, fmData, userPosition = null }) => {
   const priceSeries = (fmData?.price || []).slice(-60).map((row) => ({
     date: row.date,
     close: roundMaybe(row.close),
@@ -301,6 +250,8 @@ export const buildProvidedData = ({ query, ticker, companyName, fmData }) => {
       fiveDaySum: fmData?.sum || null,
     },
     margin: fmData?.margin || null,
+    // 使用者實際部位（已持有成本/股數，或未持有的進場規劃），供 AI 做個人化進出場說明
+    ...(userPosition ? { userPosition } : {}),
     limitations: [
       'Price data comes from Yahoo Finance chart data, similar to the yfinance source used by the Python script.',
       'Chip and margin data are optional FinMind supplements and may be missing or delayed.',
@@ -357,23 +308,9 @@ const parseGoogleNewsRss = (xmlText, limit) => {
 // 與 finmind/yahooPrice 相同策略：DEV 瀏覽器走 /api/news 代理避免 CORS，native/正式環境直連
 export async function googleNews(query, limit = 8) {
   if (!query) return [];
-  const isNative = typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.();
-
-  if (!isNative && import.meta.env.DEV) {
-    try {
-      const r = await fetch(`/api/news?q=${encodeURIComponent(query)}`);
-      if (!r.ok) return [];
-      return parseGoogleNewsRss(await r.text(), limit);
-    } catch {
-      return [];
-    }
-  }
-
-  try {
-    const r = await fetch(`${GOOGLE_NEWS_ENDPOINT}?q=${encodeURIComponent(query)}&hl=zh-TW&gl=TW&ceid=TW:zh-Hant`);
-    if (!r.ok) return [];
-    return parseGoogleNewsRss(await r.text(), limit);
-  } catch {
-    return [];
-  }
+  const text = await fetchText(pickUrl(
+    `/api/news?q=${encodeURIComponent(query)}`,
+    `${GOOGLE_NEWS_ENDPOINT}?q=${encodeURIComponent(query)}&hl=zh-TW&gl=TW&ceid=TW:zh-Hant`,
+  ));
+  return text ? parseGoogleNewsRss(text, limit) : [];
 }

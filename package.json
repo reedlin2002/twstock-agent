@@ -11,7 +11,11 @@
     "android:apk:release": "vite build && cap sync android && cd android && .\\gradlew.bat assembleRelease"
   },
   "dependencies": {
+    "@capacitor/app": "^8.1.0",
+    "@capacitor/background-runner": "^3.0.0",
     "@capacitor/core": "^8.4.0",
+    "@capacitor/local-notifications": "^8.2.0",
+    "@capacitor/preferences": "^8.0.1",
     "@capacitor/splash-screen": "^8.0.1",
     "@capacitor/status-bar": "^8.0.2",
     "@vitejs/plugin-react": "^4.3.4",

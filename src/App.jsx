@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import {
   Search, Newspaper, AlertTriangle, BarChart3,
   Compass, Loader2, Info, RefreshCw, TrendingUp,
-  Star, Notebook, Copy, Check, Sparkles, Menu,
+  Star, Notebook, Copy, Check, Sparkles, Menu, Wallet,
 } from 'lucide-react';
 import {
   ComposedChart, Area, Line, XAxis, YAxis,
@@ -14,7 +14,7 @@ import { EXAMPLES, SECTIONS, LOAD_MSGS } from './data/constants.js';
 import { fmtMD, pf, sf, rangef, daysAgo } from './lib/format.js';
 import { planSummary, toneForText } from './lib/technicals.js';
 import {
-  finmind, yahooPrice, processFinmind, resolveTickerAsync, buildProvidedData, extractAiText, googleNews, quickQuotes,
+  finmind, yahooPrice, processFinmind, resolveTickerAsync, buildProvidedData, extractAiText, googleNews,
 } from './lib/data.js';
 import { parseReport, sanitizeLeaks } from './lib/parseReport.js';
 import {
@@ -26,11 +26,19 @@ import AppSplash from './components/AppSplash.jsx';
 import StockNoteModal from './components/StockNoteModal.jsx';
 import StockDetailsModal from './components/StockDetailsModal.jsx';
 import WatchlistDrawer from './components/WatchlistDrawer.jsx';
+import PositionPanel from './components/PositionPanel.jsx';
+import BatteryTipCard from './components/BatteryTipCard.jsx';
+import { buildPositionPlan, positionForAi } from './lib/positionPlan.js';
+import {
+  isNative, ensureNotifyPermission, startForeground, stopForeground,
+  setOngoing, cancelNotify, notify, NOTIF, onNotificationTap, mirrorAlertConfig,
+} from './lib/native.js';
+import { loadAiResult, saveAiResult, savePending, clearPending } from './lib/analysisStore.js';
 import { buildDataEvents } from './lib/derivedEvents.js';
 import { buildMarkdownReport } from './lib/markdownReport.js';
 import { buildHoldingStatus } from './lib/holdingStatus.js';
+import { useWatchlist } from './hooks/useWatchlist.js';
 import {
-  loadWatchlist, toggleWatch, isWatched,
   loadRecent, pushRecent,
   getNote, saveNote, clearNote, hasNote, DEFAULT_NOTE,
 } from './lib/storage.js';
@@ -49,21 +57,21 @@ export default function TaiwanStockAgentPro() {
   const [activeCode, setActiveCode] = useState(null);
   const [showGlossary, setShowGlossary] = useState(false);
   const [splashDone, setSplashDone] = useState(false);
-  const [watchlist, setWatchlist] = useState([]);
+  const wl = useWatchlist();                          // 自選股群組、報價與操作（hook）
   const [recent, setRecent] = useState([]);
   const [note, setNote] = useState(DEFAULT_NOTE);
   const [showNote, setShowNote] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showWatch, setShowWatch] = useState(false); // 自選股抽屜開關
-  const [quotes, setQuotes] = useState({});            // 自選股即時報價 { [code]: quote }
-  const [quotesLoading, setQuotesLoading] = useState(false);
   const [showDetails, setShowDetails] = useState(false); // 詳細數據彈窗開關
+  const [posEnabled, setPosEnabled] = useState(false);   // 是否把個人部位納入 AI 分析
+  const [position, setPosition] = useState(null);        // 個人部位輸入（PositionPanel 回報）
   const [aiHl, setAiHl] = useState(false);               // AI 結果出現時的高亮脈動
   const aiSecRef = useRef(null);                          // AI 區錨點（按下後自動捲到此）
+  const openStockRef = useRef(null);                      // 供原生通知點擊深連結呼叫最新的 openStock
 
-  // 啟動時載入個人化資料（localStorage，已防呆）
+  // 啟動時載入最近查詢（自選股由 useWatchlist 內部於 mount 載入）
   useEffect(() => {
-    setWatchlist(loadWatchlist());
     setRecent(loadRecent());
   }, []);
 
@@ -83,24 +91,10 @@ export default function TaiwanStockAgentPro() {
     return () => clearTimeout(id);
   }, [result]);
 
-  // 開抽屜時抓自選股即時報價（清單變動也重抓；不輪詢）
+  // 開抽屜時抓自選股即時報價（清單／群組變動也重抓；不輪詢）
   useEffect(() => {
-    if (!showWatch || watchlist.length === 0) return;
-    let cancelled = false;
-    setQuotesLoading(true);
-    quickQuotes(watchlist.map((it) => it.code))
-      .then((map) => { if (!cancelled) setQuotes(map); })
-      .finally(() => { if (!cancelled) setQuotesLoading(false); });
-    return () => { cancelled = true; };
-  }, [showWatch, watchlist]);
-
-  const refreshQuotes = () => {
-    if (watchlist.length === 0) return;
-    setQuotesLoading(true);
-    quickQuotes(watchlist.map((it) => it.code))
-      .then(setQuotes)
-      .finally(() => setQuotesLoading(false));
-  };
+    if (showWatch) wl.refreshQuotes();
+  }, [showWatch, wl.refreshQuotes]);
 
   const loadFinmind = async (code) => {
     setActiveCode(code); setFm({ status: 'loading' });
@@ -159,6 +153,9 @@ export default function TaiwanStockAgentPro() {
       setRecent((prev) => pushRecent(prev, ticker, companyName));
       setNote(getNote(ticker));
       setStock({ code: ticker, name: companyName });
+      // 還原這檔上次的 AI 分析結果（手機滑掉重開也看得到），需要時再重新分析
+      const savedAi = loadAiResult(ticker);
+      if (savedAi?.result) setResult(savedAi.result);
     } catch (e) {
       setError(e.message || '發生未知錯誤，請稍後再試。');
     } finally {
@@ -173,9 +170,22 @@ export default function TaiwanStockAgentPro() {
     setAiError(null);
     // 立即捲到底部 AI 區，讓使用者看到分析進度（結果就落在這）
     setTimeout(() => aiSecRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+    // 記錄「進行中」並啟動前景服務 + 進行中通知（手機離開 App／鎖屏也持續、收得到通知）
+    savePending(stock.code, stock.name);
+    if (isNative()) {
+      ensureNotifyPermission();
+      const fgTitle = '正在進行 AI 分析…';
+      const fgBody = `${stock.name} ${stock.code}（分析中，請勿強制關閉）`;
+      startForeground({ title: fgTitle, body: fgBody }).then((ok) => { if (!ok) setOngoing({ title: fgTitle, body: fgBody }); });
+    }
     const q = `${stock.name} ${stock.code}`.trim();
     try {
-      const providedData = buildProvidedData({ query: q, ticker: stock.code, companyName: stock.name, fmData: fm });
+      // 個人化進出場：啟用且有輸入時，把本地算好的部位數字一起帶入
+      const posPlan = (posEnabled && position) ? buildPositionPlan({ position, latestClose, tradePlan: fm.ta?.tradePlan }) : null;
+      const providedData = buildProvidedData({
+        query: q, ticker: stock.code, companyName: stock.name, fmData: fm,
+        userPosition: posPlan ? positionForAi(posPlan) : null,
+      });
       // 即時新聞：用公司名抓 Google News（命中台股中文新聞最準），缺名才退回完整查詢字串
       const newsItems = liveSearch ? await googleNews(stock.name || q) : [];
       const newsBlock = liveSearch ? buildNewsBlock(newsItems) : '';
@@ -209,21 +219,64 @@ export default function TaiwanStockAgentPro() {
       const text = extractAiText(data);
       const sources = liveSearch ? newsItems : [];
       const parsed = parseReport(text);
+      let finalResult = null;
       if (parsed) {
-        setResult({
+        finalResult = {
           ...parsed,
           name: parsed.name && parsed.name !== stock.code ? parsed.name : stock.name,
           ticker: parsed.ticker || stock.code,
           _sources: sources,
-        });
-      } else if (text && text.trim()) setResult({ _raw: sanitizeLeaks(text), name: stock.name, _sources: sources });
-      else throw new Error('沒有取得分析結果，請稍後再試。');
+        };
+      } else if (text && text.trim()) {
+        finalResult = { _raw: sanitizeLeaks(text), name: stock.name, _sources: sources };
+      } else {
+        throw new Error('沒有取得分析結果，請稍後再試。');
+      }
+      setResult(finalResult);
+      saveAiResult(stock.code, stock.name, finalResult); // 持久化，滑掉重開也看得到
+      // 完成：收掉進行中、發完成通知（手機可從通知點回此股）
+      clearPending();
+      if (isNative()) {
+        stopForeground();
+        cancelNotify(NOTIF.analysisOngoing);
+        notify({ id: NOTIF.analysisDone, title: '✅ AI 分析完成', body: `${stock.name} ${stock.code} 已完成，點開查看`, code: stock.code });
+      }
     } catch (e) {
       setAiError(e.message || 'AI 分析發生錯誤，請稍後再試。');
+      clearPending();
+      if (isNative()) {
+        stopForeground();
+        cancelNotify(NOTIF.analysisOngoing);
+        notify({ id: NOTIF.analysisDone, title: '⚠️ AI 分析未完成', body: `${stock.name} ${stock.code} 分析失敗，可重試`, code: stock.code });
+      }
     } finally {
       setAiLoading(false);
     }
   };
+
+  // 讓原生通知點擊能呼叫到最新的 openStock（每次 render 更新 ref）
+  useEffect(() => { openStockRef.current = openStock; });
+
+  // 原生：點擊「分析完成」通知 → 開回該股
+  useEffect(() => {
+    if (!isNative()) return undefined;
+    let off = () => {};
+    onNotificationTap((code) => { if (code) openStockRef.current?.(code); }).then((fn) => { off = fn; });
+    return () => off();
+  }, []);
+
+  // 原生：自選股／紀錄變動時，把「已開啟到價提醒且有設價位」的設定送給背景 runner
+  useEffect(() => {
+    if (!isNative()) return;
+    const numOr = (v) => { const x = Number(v); return (Number.isFinite(x) && String(v ?? '').trim() !== '') ? x : null; };
+    const cfg = wl.items.map((it) => {
+      const n = getNote(it.code);
+      if (n.alertOn !== true) return null;
+      const c = { code: it.code, name: it.name || it.code, stopLoss: numOr(n.stopLoss), takeProfit: numOr(n.takeProfit), target: numOr(n.alertTarget) };
+      return (c.stopLoss == null && c.takeProfit == null && c.target == null) ? null : c;
+    }).filter(Boolean);
+    mirrorAlertConfig(cfg);
+  }, [wl.items, note]);
 
   const home = !stock && !loading;
   const ta = fm.status === 'ok' ? fm.ta : null;
@@ -238,7 +291,7 @@ export default function TaiwanStockAgentPro() {
   const triggerHit = ta ? ta.trigger.filter(([, ok]) => ok).length : 0; // 進場訊號命中數
   const sum = fm.status === 'ok' ? fm.sum : null;                        // 三大法人近5日彙總
   const holding = buildHoldingStatus(note, latestClose);
-  const watched = curCode ? isWatched(watchlist, curCode) : false;
+  const watched = curCode ? wl.isWatched(curCode) : false;
   const noteFilled = curCode ? hasNote(curCode) : false;
 
   // 標題即時價格讀數（最新收盤 + 當日漲跌，紅漲綠跌）
@@ -254,7 +307,12 @@ export default function TaiwanStockAgentPro() {
 
   const onToggleWatch = () => {
     if (!curCode) return;
-    setWatchlist((prev) => toggleWatch(prev, curCode, curName));
+    wl.toggleWatch(curCode, curName);
+  };
+  // 抽屜：把目前個股加入指定群組
+  const onAddCurrentToGroup = (groupId) => {
+    if (!curCode) return;
+    wl.addToGroup(curCode, curName, groupId);
   };
   // 回首頁：清掉目前個股，回到搜尋首頁
   const goHome = () => {
@@ -278,7 +336,7 @@ export default function TaiwanStockAgentPro() {
   };
   // 抽屜：移除自選
   const onDrawerRemove = (code) => {
-    setWatchlist((prev) => toggleWatch(prev, code));
+    wl.removeItem(code);
   };
   const onSaveNote = (rec) => {
     if (!curCode) return;
@@ -321,7 +379,7 @@ export default function TaiwanStockAgentPro() {
           <header className="hd">
             <button type="button" className="mbtn" onClick={() => setShowWatch(true)} title="自選股選單" aria-label="自選股選單">
               <Menu size={20} />
-              {watchlist.length > 0 && <span className="badge">{watchlist.length}</span>}
+              {wl.items.length > 0 && <span className="badge">{wl.items.length}</span>}
             </button>
             <button type="button" className="bd bd-btn" onClick={goHome} title="回首頁" aria-label="回首頁">
               <span className="mk">
@@ -345,6 +403,8 @@ export default function TaiwanStockAgentPro() {
               {loading ? <Loader2 size={17} className="spin" /> : <Search size={17} />}查詢
             </button>
           </div>
+
+          <BatteryTipCard />
 
           {/* 首頁才顯示：熱門（單行橫向滑動）。自選股 / 最近查詢 已在左上 ☰ 抽屜，首頁不重複 */}
           {home && (
@@ -416,21 +476,31 @@ export default function TaiwanStockAgentPro() {
 
               {/* 置頂 AI 主按鈕：按下後結果落在最下方 AI 區並自動捲過去 */}
               {fm.status === 'ok' && (
-                <div className="aitop">
-                  <button className="aibtn aitop-btn" onClick={runAi} disabled={aiLoading}>
-                    {aiLoading
-                      ? <><Loader2 size={16} className="spin" />AI 分析中…</>
-                      : <><Sparkles size={16} />{result ? '重新 AI 分析' : 'AI 深入分析'}{liveSearch ? '（含 Google 新聞）' : ''}</>}
-                  </button>
-                  <label className="aitoggle aitop-toggle">
-                    <input type="checkbox" checked={liveSearch} onChange={(e) => setLiveSearch(e.target.checked)} />
-                    <span className="aiswitch" />
-                    <span className="aitoggletx">
-                      即時新聞（Google News）<span className="aitoggled">抓近期新聞・附標題日期來源，免費（預設關）</span>
-                    </span>
-                  </label>
-                  <div className="aitop-hint"><Info size={12} />整理基本面 / 消息面 / 產業 / 買點 / 風險，約 20–40 秒。結果會出現在最下方，按下自動帶你過去。</div>
-                </div>
+                <>
+                  <div className="aitop">
+                    <button className="aibtn aitop-btn" onClick={runAi} disabled={aiLoading}>
+                      {aiLoading
+                        ? <><Loader2 size={16} className="spin" />AI 分析中…</>
+                        : <><Sparkles size={16} />{result ? '重新 AI 分析' : 'AI 深入分析'}{liveSearch ? '（含 Google 新聞）' : ''}</>}
+                    </button>
+                    <label className="aitoggle aitop-toggle">
+                      <input type="checkbox" checked={liveSearch} onChange={(e) => setLiveSearch(e.target.checked)} />
+                      <span className="aiswitch" />
+                      <span className="aitoggletx">
+                        即時新聞（Google News）<span className="aitoggled">抓近期新聞・附標題日期來源，免費（預設關）</span>
+                      </span>
+                    </label>
+                    <div className="aitop-hint"><Info size={12} />整理基本面 / 消息面 / 產業 / 買點 / 風險，約 20–40 秒。結果會出現在最下方，按下自動帶你過去。</div>
+                  </div>
+                  <PositionPanel
+                    note={note}
+                    latestClose={latestClose}
+                    tradePlan={ta?.tradePlan}
+                    enabled={posEnabled}
+                    onEnabledChange={setPosEnabled}
+                    onPositionChange={setPosition}
+                  />
+                </>
               )}
 
               {/* 持股條件提醒（依我的紀錄 + 目前股價） */}
@@ -586,6 +656,13 @@ export default function TaiwanStockAgentPro() {
                       </div>
                     )}
 
+                    {result.position && !/未提供個人部位/.test(result.position) && (
+                      <div className="posai">
+                        <div className="h"><span className="ic"><Wallet size={17} /></span><h3>個人化進出場（依你的部位）</h3></div>
+                        <div className="b">{result.position}</div>
+                      </div>
+                    )}
+
                     <div className="sech">五大面向分析</div>
                     <div className="gr">
                       {SECTIONS.map((s, i) => {
@@ -655,6 +732,7 @@ export default function TaiwanStockAgentPro() {
           name={curName}
           record={note}
           latestClose={latestClose}
+          tradePlan={ta?.tradePlan}
           onSave={onSaveNote}
           onClear={onClearNote}
         />
@@ -670,18 +748,26 @@ export default function TaiwanStockAgentPro() {
         <WatchlistDrawer
           open={showWatch}
           onClose={() => setShowWatch(false)}
-          watchlist={watchlist}
+          groups={wl.groups}
+          items={wl.items}
           recent={recent}
-          quotes={quotes}
-          quotesLoading={quotesLoading}
+          quotes={wl.quotes}
+          quotesLoading={wl.quotesLoading}
           currentCode={curCode}
           currentName={curName}
           currentWatched={watched}
           onSelect={onDrawerSelect}
           onSearch={onDrawerSearch}
           onRemove={onDrawerRemove}
-          onRefresh={refreshQuotes}
-          onAddCurrent={onToggleWatch}
+          onRefresh={wl.refreshQuotes}
+          onAddCurrent={onAddCurrentToGroup}
+          onCreateGroup={wl.createGroup}
+          onRenameGroup={wl.renameGroup}
+          onDeleteGroup={wl.deleteGroup}
+          onMoveGroup={wl.moveGroup}
+          onMoveToGroup={wl.moveToGroup}
+          onMoveItem={wl.moveItem}
+          onAfterImport={() => { wl.reload(); if (curCode) setNote(getNote(curCode)); }}
         />
       </div>
     </>

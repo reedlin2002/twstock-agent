@@ -3,6 +3,21 @@ dist
 .env
 .env.local
 .env.example
-android
+
+# Capacitor android/ 大多是 cap 產生的，整體忽略；
+# 但「手寫、cap 不會重建」的原生外掛與 Manifest 要納入版控，
+# 否則重跑 cap add android 會遺失前景服務外掛。
+android/*
+!android/app/
+android/app/*
+!android/app/src/
+android/app/src/*
+!android/app/src/main/
+android/app/src/main/*
+!android/app/src/main/AndroidManifest.xml
+!android/app/src/main/java/
+
 .claude
 .gemini
+skills-lock.json
+.agents

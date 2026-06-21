@@ -71,6 +71,8 @@ export function buildMarkdownReport({ name, ticker, result = {}, ta, fm, note, e
 
   if (result.buyPoint) { sec('買點條件觀察（研究輔助）'); push(result.buyPoint); }
 
+  if (result.position && !/未提供個人部位/.test(result.position)) { sec('個人化進出場（依你的部位）'); push(result.position); }
+
   // 我的持股紀錄
   const n = note || {};
   const noteFields = ['buyPrice', 'shares', 'reason', 'stopLoss', 'takeProfit', 'exitRule'];
