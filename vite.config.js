@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import react from '@vitejs/plugin-react';
 import { defineConfig, loadEnv } from 'vite';
 
@@ -379,5 +380,13 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react(), aiProxy(env)],
+    build: {
+      rollupOptions: {
+        input: {
+          main: resolve(__dirname, 'index.html'),
+          line: resolve(__dirname, 'line.html'),
+        },
+      },
+    },
   };
 });

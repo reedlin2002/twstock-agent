@@ -1,0 +1,20 @@
+{
+  "rewrites": [
+    {
+      "source": "/line",
+      "destination": "/line.html"
+    },
+    {
+      "source": "/line/:path*",
+      "destination": "/line.html"
+    }
+  ],
+  "functions": {
+    "api/stock/analyze.js": {
+      "maxDuration": 60
+    },
+    "api/line/webhook.js": {
+      "maxDuration": 30
+    }
+  }
+}
