@@ -29,6 +29,15 @@ Recommended for watchlist persistence:
 - `KV_REST_API_URL` and `KV_REST_API_TOKEN`, or
 - `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`
 
+The code also supports common Vercel-generated names such as:
+
+- `UPSTASH_REDIS_REST_KV_REST_API_URL`
+- `UPSTASH_REDIS_REST_KV_REST_API_TOKEN`
+- `STORAGE_KV_REST_API_URL`
+- `STORAGE_KV_REST_API_TOKEN`
+
+Do not use a variable that ends with `READ_ONLY_TOKEN`, because the watchlist needs write access.
+
 If Redis is not configured, the bot can still read a fixed watchlist from:
 
 - `WATCHLIST_CODES`: comma-separated stock codes, for example `2330,2317,2454`
