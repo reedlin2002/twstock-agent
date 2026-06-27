@@ -13,8 +13,17 @@
     "api/stock/analyze.js": {
       "maxDuration": 60
     },
+    "api/line/daily.js": {
+      "maxDuration": 60
+    },
     "api/line/webhook.js": {
       "maxDuration": 30
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/line/daily",
+      "schedule": "30 0 * * 1-5"
+    }
+  ]
 }
