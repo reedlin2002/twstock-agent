@@ -7,6 +7,8 @@
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
+    "android:assets": "capacitor-assets generate --android",
+    "android:sync": "cap sync android",
     "android:apk": "vite build && cap sync android && cd android && .\\gradlew.bat assembleDebug",
     "android:apk:release": "vite build && cap sync android && cd android && .\\gradlew.bat assembleRelease"
   },

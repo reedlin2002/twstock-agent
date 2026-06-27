@@ -1,0 +1,201 @@
+name: Android APK Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-apk:
+    name: Build signed APK and publish release
+    runs-on: ubuntu-latest
+
+    env:
+      ANDROID_KEYSTORE_PATH: ${{ github.workspace }}/android/app/release.keystore
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+      LINE_TARGET_ID: ${{ secrets.LINE_TARGET_ID }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure release version
+        id: version
+        run: |
+          VERSION_CODE="${GITHUB_RUN_NUMBER}"
+          VERSION_NAME="0.1.${VERSION_CODE}"
+          TAG="v${VERSION_NAME}"
+          APK_NAME="twstock-agent-${TAG}.apk"
+
+          {
+            echo "ANDROID_VERSION_CODE=${VERSION_CODE}"
+            echo "ANDROID_VERSION_NAME=${VERSION_NAME}"
+            echo "RELEASE_TAG=${TAG}"
+            echo "APK_NAME=${APK_NAME}"
+          } >> "$GITHUB_ENV"
+
+          {
+            echo "version_code=${VERSION_CODE}"
+            echo "version_name=${VERSION_NAME}"
+            echo "tag=${TAG}"
+            echo "apk_name=${APK_NAME}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Install Android SDK platform
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-36"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify signing secrets
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          missing=0
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing GitHub secret: ${name}"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$ANDROID_KEYSTORE_PATH"
+
+      - name: Build web assets
+        run: npm run build
+
+      - name: Generate Android icons and splash assets
+        run: npm run android:assets -- --splashBackgroundColor "#15120E" --splashBackgroundColorDark "#15120E" --iconBackgroundColor "#15120E" --iconBackgroundColorDark "#15120E"
+
+      - name: Sync Capacitor Android project
+        run: npm run android:sync
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x android/gradlew
+
+      - name: Build release APK
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Prepare release asset
+        id: asset
+        run: |
+          mkdir -p release
+          APK_PATH="android/app/build/outputs/apk/release/app-release.apk"
+          if [ ! -f "$APK_PATH" ]; then
+            echo "::error::Expected signed APK was not produced at ${APK_PATH}"
+            find android/app/build/outputs/apk/release -name '*.apk' -print || true
+            exit 1
+          fi
+
+          cp "$APK_PATH" "release/$APK_NAME"
+          APK_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/${APK_NAME}"
+
+          {
+            echo "apk_path=release/${APK_NAME}"
+            echo "apk_url=${APK_URL}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APK_NAME }}
+          path: release/${{ env.APK_NAME }}
+          if-no-files-found: error
+
+      - name: Publish GitHub release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTES_FILE="$(mktemp)"
+          {
+            echo "Automated Android APK build for ${RELEASE_TAG}."
+            echo
+            echo "- Commit: ${GITHUB_SHA}"
+            echo "- Version code: ${ANDROID_VERSION_CODE}"
+            echo "- Version name: ${ANDROID_VERSION_NAME}"
+          } > "$NOTES_FILE"
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "${{ steps.asset.outputs.apk_path }}" --clobber
+          else
+            gh release create "$RELEASE_TAG" "${{ steps.asset.outputs.apk_path }}" \
+              --title "$RELEASE_TAG" \
+              --notes-file "$NOTES_FILE" \
+              --target "$GITHUB_SHA" \
+              --prerelease
+          fi
+
+          RELEASE_URL="$(gh release view "$RELEASE_TAG" --json url --jq .url)"
+          echo "release_url=${RELEASE_URL}" >> "$GITHUB_OUTPUT"
+
+      - name: Notify LINE
+        run: |
+          if [ -z "$LINE_CHANNEL_ACCESS_TOKEN" ] || [ -z "$LINE_TARGET_ID" ]; then
+            echo "::warning::LINE secrets are not configured; skipping LINE notification."
+            exit 0
+          fi
+
+          node <<'NODE'
+          (async () => {
+            const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+            const to = process.env.LINE_TARGET_ID;
+            const text = [
+              `010401 Finance ${process.env.RELEASE_TAG} APK is ready.`,
+              `Version: ${process.env.ANDROID_VERSION_NAME} (${process.env.ANDROID_VERSION_CODE})`,
+              `Release: ${process.env.RELEASE_URL}`,
+              `APK: ${process.env.APK_URL}`,
+            ].join('\n');
+
+            const response = await fetch('https://api.line.me/v2/bot/message/push', {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                to,
+                messages: [{ type: 'text', text }],
+              }),
+            });
+
+            if (!response.ok) {
+              const body = await response.text();
+              console.error(`LINE notification failed: ${response.status} ${body}`);
+              process.exit(1);
+            }
+          })();
+          NODE
+        env:
+          RELEASE_URL: ${{ steps.release.outputs.release_url }}
+          APK_URL: ${{ steps.asset.outputs.apk_url }}
