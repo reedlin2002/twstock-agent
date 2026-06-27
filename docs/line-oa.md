@@ -113,7 +113,7 @@ Create the rich menu in LINE Official Account Manager. Use a 2 x 3 layout:
 
 | Button | Action |
 | --- | --- |
-| 查股票 | Message: `查股票` |
+| 查股票 | URL: `https://YOUR_VERCEL_DOMAIN/line` |
 | 觀察清單 | Message: `清單` |
 | 今日重點 | Message: `今日重點` |
 | 加入台積電 | Message: `加入 2330` |

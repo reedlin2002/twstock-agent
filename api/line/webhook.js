@@ -1,8 +1,8 @@
-import { buildDailyDigest, formatDailyDigest } from '../_lib/daily.js';
+import { buildDailyDigest } from '../_lib/daily.js';
 import { buildStockSummary } from '../_lib/stock.js';
-import { addCodes, getWatchlist, hasPersistentWatchlist, parseCodes, removeCodes } from '../_lib/watchlist.js';
+import { addCodes, getWatchlist, parseCodes, removeCodes } from '../_lib/watchlist.js';
 import { errorMessage, publicBaseUrl, readRawBody, sendJson, sendText } from '../_lib/http.js';
-import { helpQuickReply, replyMessage, summaryFlex, textMessage, verifyLineSignature } from '../_lib/line.js';
+import { dailyDigestFlex, replyMessage, summaryFlex, textMessage, verifyLineSignature, watchlistFlex } from '../_lib/line.js';
 
 const T = {
   help: '\u8aaa\u660e',
@@ -31,14 +31,10 @@ function helpText() {
   ].join('\n');
 }
 
-function formatWatchlist(codes) {
-  if (!codes.length) return '\u89c0\u5bdf\u6e05\u55ae\u76ee\u524d\u662f\u7a7a\u7684\u3002\u8acb\u50b3\u300c\u52a0\u5165 2330\u300d\u5148\u52a0\u5165\u4e00\u6a94\u3002';
-  return ['\u76ee\u524d\u89c0\u5bdf\u6e05\u55ae:', ...codes.map((code, index) => `${index + 1}. ${code}`)].join('\n');
-}
-
 function commandKind(text) {
   const compact = String(text || '').replace(/\s+/g, '').toLowerCase();
-  if (['help', T.help, '\u5e6b\u52a9', '\u67e5\u80a1\u7968'].includes(compact)) return 'help';
+  if (['help', T.help, '\u5e6b\u52a9'].includes(compact)) return 'help';
+  if (['\u67e5\u80a1\u7968', 'stock'].includes(compact)) return 'noop';
   if ([T.list, '\u89c0\u5bdf\u6e05\u55ae', 'watchlist', 'list'].includes(compact)) return 'list';
   if ([T.daily, '\u4eca\u65e5', '\u6bcf\u65e5\u6458\u8981', 'daily'].includes(compact)) return 'daily';
   if ([T.apk.toLowerCase(), 'apk', '\u4e0b\u8f09', 'download'].includes(compact)) return 'apk';
@@ -55,7 +51,7 @@ function redisFailureText(error) {
   return `\u89c0\u5bdf\u6e05\u55ae\u5132\u5b58\u5931\u6557: ${errorMessage(error)}\n\n\u8acb\u78ba\u8a8d\u6c92\u6709\u7528 READ_ONLY_TOKEN\uff0c\u800c\u662f\u7528\u53ef\u5beb\u5165\u7684 TOKEN\u3002`;
 }
 
-async function handleAdd(event, text) {
+async function handleAdd(event, text, baseUrl) {
   const codes = parseCodes(text);
   if (!codes.length) {
     await replyMessage(event.replyToken, textMessage('\u8acb\u7528\u300c\u52a0\u5165 2330\u300d\u9019\u7a2e\u683c\u5f0f\u3002'));
@@ -64,13 +60,16 @@ async function handleAdd(event, text) {
 
   try {
     const updated = await addCodes(event.source?.userId, codes);
-    await replyMessage(event.replyToken, textMessage(`\u5df2\u52a0\u5165: ${codes.join(', ')}\n\n${formatWatchlist(updated)}`));
+    await replyMessage(event.replyToken, [
+      textMessage(`\u5df2\u52a0\u5165: ${codes.join(', ')}`),
+      watchlistFlex(updated, baseUrl),
+    ]);
   } catch (error) {
     await replyMessage(event.replyToken, textMessage(redisFailureText(error)));
   }
 }
 
-async function handleRemove(event, text) {
+async function handleRemove(event, text, baseUrl) {
   const codes = parseCodes(text);
   if (!codes.length) {
     await replyMessage(event.replyToken, textMessage('\u8acb\u7528\u300c\u79fb\u9664 2330\u300d\u9019\u7a2e\u683c\u5f0f\u3002'));
@@ -79,18 +78,19 @@ async function handleRemove(event, text) {
 
   try {
     const updated = await removeCodes(event.source?.userId, codes);
-    await replyMessage(event.replyToken, textMessage(`\u5df2\u79fb\u9664: ${codes.join(', ')}\n\n${formatWatchlist(updated)}`));
+    await replyMessage(event.replyToken, [
+      textMessage(`\u5df2\u79fb\u9664: ${codes.join(', ')}`),
+      watchlistFlex(updated, baseUrl),
+    ]);
   } catch (error) {
     await replyMessage(event.replyToken, textMessage(redisFailureText(error)));
   }
 }
 
-async function handleDaily(event) {
+async function handleDaily(event, baseUrl) {
   const codes = await getWatchlist(event.source?.userId);
   const digest = await buildDailyDigest(codes);
-  await replyMessage(event.replyToken, textMessage(formatDailyDigest(digest, {
-    storageReady: hasPersistentWatchlist(),
-  })));
+  await replyMessage(event.replyToken, dailyDigestFlex(digest, baseUrl));
 }
 
 async function handleText(event, baseUrl) {
@@ -103,28 +103,32 @@ async function handleText(event, baseUrl) {
   }
 
   if (kind === 'help') {
-    await replyMessage(event.replyToken, textMessage(helpText(), helpQuickReply()));
+    await replyMessage(event.replyToken, textMessage(helpText()));
+    return;
+  }
+
+  if (kind === 'noop') {
     return;
   }
 
   if (kind === 'list') {
     const codes = await getWatchlist(event.source?.userId);
-    await replyMessage(event.replyToken, textMessage(formatWatchlist(codes), helpQuickReply()));
+    await replyMessage(event.replyToken, watchlistFlex(codes, baseUrl));
     return;
   }
 
   if (kind === 'add') {
-    await handleAdd(event, text);
+    await handleAdd(event, text, baseUrl);
     return;
   }
 
   if (kind === 'remove') {
-    await handleRemove(event, text);
+    await handleRemove(event, text, baseUrl);
     return;
   }
 
   if (kind === 'daily') {
-    await handleDaily(event);
+    await handleDaily(event, baseUrl);
     return;
   }
 
@@ -141,7 +145,7 @@ async function handleText(event, baseUrl) {
 
   const codes = parseCodes(text);
   if (!codes.length) {
-    await replyMessage(event.replyToken, textMessage('\u770b\u4e0d\u51fa\u80a1\u7968\u4ee3\u78bc\u3002\u8acb\u50b3 2330\uff0c\u6216\u50b3\u300c\u8aaa\u660e\u300d\u770b\u53ef\u7528\u6307\u4ee4\u3002', helpQuickReply()));
+    await replyMessage(event.replyToken, textMessage('\u770b\u4e0d\u51fa\u80a1\u7968\u4ee3\u78bc\u3002\u8acb\u50b3 2330\uff0c\u6216\u50b3\u300c\u8aaa\u660e\u300d\u770b\u53ef\u7528\u6307\u4ee4\u3002'));
     return;
   }
 
@@ -151,7 +155,7 @@ async function handleText(event, baseUrl) {
 
 async function handleEvent(event, baseUrl) {
   if (event.type === 'follow') {
-    await replyMessage(event.replyToken, textMessage(`\u6b61\u8fce\u4f7f\u7528 010401 Finance\u3002\n\n${helpText()}`, helpQuickReply()));
+    await replyMessage(event.replyToken, textMessage(`\u6b61\u8fce\u4f7f\u7528 010401 Finance\u3002\n\n${helpText()}`));
     return;
   }
 

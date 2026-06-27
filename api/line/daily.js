@@ -1,7 +1,7 @@
-import { buildDailyDigest, formatDailyDigest } from '../_lib/daily.js';
-import { errorMessage, handleOptions, methodNotAllowed, sendJson, setCors } from '../_lib/http.js';
-import { pushMessage, textMessage } from '../_lib/line.js';
-import { getWatchlist, hasPersistentWatchlist } from '../_lib/watchlist.js';
+import { buildDailyDigest } from '../_lib/daily.js';
+import { errorMessage, handleOptions, methodNotAllowed, publicBaseUrl, sendJson, setCors } from '../_lib/http.js';
+import { dailyDigestFlex, pushMessage } from '../_lib/line.js';
+import { getWatchlist } from '../_lib/watchlist.js';
 
 function cronAuthorized(req) {
   const secret = process.env.CRON_SECRET || '';
@@ -36,8 +36,7 @@ export default async function handler(req, res) {
   try {
     const codes = await getWatchlist(target);
     const digest = await buildDailyDigest(codes);
-    const text = formatDailyDigest(digest, { storageReady: hasPersistentWatchlist() });
-    await pushMessage(target, textMessage(text));
+    await pushMessage(target, dailyDigestFlex(digest, publicBaseUrl(req)));
     sendJson(res, 200, {
       ok: true,
       pushed: true,
