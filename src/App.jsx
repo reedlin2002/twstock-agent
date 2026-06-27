@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import {
   Search, Newspaper, AlertTriangle, BarChart3,
   Compass, Loader2, Info, RefreshCw, TrendingUp,
-  Star, Notebook, Copy, Check, Sparkles, Menu, Wallet,
+  Star, Notebook, Copy, Check, Sparkles, Menu, Wallet, ArrowLeft, ChevronDown,
 } from 'lucide-react';
 import {
   ComposedChart, Area, Line, XAxis, YAxis,
@@ -14,11 +14,12 @@ import { EXAMPLES, SECTIONS, LOAD_MSGS } from './data/constants.js';
 import { fmtMD, pf, sf, rangef, daysAgo } from './lib/format.js';
 import { planSummary, toneForText } from './lib/technicals.js';
 import {
-  finmind, yahooPrice, processFinmind, resolveTickerAsync, buildProvidedData, extractAiText, googleNews,
+  finmind, yahooPrice, processFinmind, resolveTickerAsync, buildProvidedData, extractAiText,
+  googleNews, pttSentiment, cmoneyBuzz,
 } from './lib/data.js';
 import { parseReport, sanitizeLeaks } from './lib/parseReport.js';
 import {
-  LOCAL_DATA_SYSTEM_PROMPT, LIVE_SEARCH_SYSTEM_PROMPT, buildDataDrivenPrompt, buildNewsBlock,
+  LOCAL_DATA_SYSTEM_PROMPT, LIVE_SEARCH_SYSTEM_PROMPT, buildDataDrivenPrompt, buildNewsBlock, buildSentimentBlock,
 } from './lib/prompts.js';
 import { PriceTip } from './components/Tooltips.jsx';
 import GlossaryModal from './components/GlossaryModal.jsx';
@@ -26,12 +27,13 @@ import AppSplash from './components/AppSplash.jsx';
 import StockNoteModal from './components/StockNoteModal.jsx';
 import StockDetailsModal from './components/StockDetailsModal.jsx';
 import WatchlistDrawer from './components/WatchlistDrawer.jsx';
+import WatchlistHome from './components/WatchlistHome.jsx';
 import PositionPanel from './components/PositionPanel.jsx';
 import BatteryTipCard from './components/BatteryTipCard.jsx';
 import { buildPositionPlan, positionForAi } from './lib/positionPlan.js';
 import {
   isNative, ensureNotifyPermission, startForeground, stopForeground,
-  setOngoing, cancelNotify, notify, NOTIF, onNotificationTap, mirrorAlertConfig,
+  setOngoing, cancelNotify, notify, NOTIF, onNotificationTap, mirrorAlertConfig, mirrorWatchConfig,
 } from './lib/native.js';
 import { loadAiResult, saveAiResult, savePending, clearPending } from './lib/analysisStore.js';
 import { buildDataEvents } from './lib/derivedEvents.js';
@@ -67,6 +69,7 @@ export default function TaiwanStockAgentPro() {
   const [posEnabled, setPosEnabled] = useState(false);   // 是否把個人部位納入 AI 分析
   const [position, setPosition] = useState(null);        // 個人部位輸入（PositionPanel 回報）
   const [aiHl, setAiHl] = useState(false);               // AI 結果出現時的高亮脈動
+  const [showSections, setShowSections] = useState(false); // 五大面向預設收起（先看結論，要看細節再展開）
   const aiSecRef = useRef(null);                          // AI 區錨點（按下後自動捲到此）
   const openStockRef = useRef(null);                      // 供原生通知點擊深連結呼叫最新的 openStock
 
@@ -91,26 +94,29 @@ export default function TaiwanStockAgentPro() {
     return () => clearTimeout(id);
   }, [result]);
 
-  // 開抽屜時抓自選股即時報價（清單／群組變動也重抓；不輪詢）
+  // 首頁（國泰式自選股儀表板）顯示時抓一次報價，讓打開 App 直接看到走勢
   useEffect(() => {
-    if (showWatch) wl.refreshQuotes();
-  }, [showWatch, wl.refreshQuotes]);
+    if (!stock && !loading && wl.items.length > 0) wl.refreshQuotes();
+  }, [stock, loading, wl.items.length, wl.refreshQuotes]);
 
   const loadFinmind = async (code) => {
     setActiveCode(code); setFm({ status: 'loading' });
-    const [pricePack, inst, margin] = await Promise.all([
+    const [pricePack, inst, margin, holding] = await Promise.all([
       yahooPrice(code),
       finmind('TaiwanStockInstitutionalInvestorsBuySell', code, daysAgo(45)),
       finmind('TaiwanStockMarginPurchaseShortSale', code, daysAgo(45)),
+      // 集保股權分散（週頻）：給大戶持股趨勢，抓 60 天確保有兩週以上可比
+      finmind('TaiwanStockHoldingSharesPer', code, daysAgo(60)).catch(() => null),
     ]);
     if (!pricePack?.rows?.length) { setFm({ status: 'fail' }); return null; }
     const data = {
       status: 'ok',
-      ...processFinmind(pricePack.rows, inst, margin),
+      ...processFinmind(pricePack.rows, inst, margin, holding),
       sources: {
         price: `Yahoo Finance ${pricePack.symbol || code}`,
         chips: inst ? 'FinMind institutional investors' : null,
         margin: margin ? 'FinMind margin and short-sale' : null,
+        holding: holding ? 'FinMind shareholding dispersion' : null,
       },
       priceMeta: {
         symbol: pricePack.symbol,
@@ -186,9 +192,19 @@ export default function TaiwanStockAgentPro() {
         query: q, ticker: stock.code, companyName: stock.name, fmData: fm,
         userPosition: posPlan ? positionForAi(posPlan) : null,
       });
-      // 即時新聞：用公司名抓 Google News（命中台股中文新聞最準），缺名才退回完整查詢字串
-      const newsItems = liveSearch ? await googleNews(stock.name || q) : [];
+      // 即時新聞＋散戶風向：用公司名抓 Google News，用代號抓 PTT 股板與 CMoney 爆料同學會（風向）
+      let newsItems = [];
+      let ptt = null;
+      let cmoney = [];
+      if (liveSearch) {
+        [newsItems, ptt, cmoney] = await Promise.all([
+          googleNews(stock.name || q),
+          pttSentiment(stock.code).catch(() => null),
+          cmoneyBuzz(stock.code).catch(() => []),
+        ]);
+      }
       const newsBlock = liveSearch ? buildNewsBlock(newsItems) : '';
+      const sentimentBlock = liveSearch ? buildSentimentBlock(ptt, cmoney) : '';
       const apiKey = import.meta.env.VITE_OPENROUTER_API_KEY || '';
       const endpoint = import.meta.env.VITE_AI_ENDPOINT || 'https://openrouter.ai/api/v1/chat/completions';
       const model = import.meta.env.VITE_AI_MODEL || 'openrouter/free';
@@ -201,9 +217,9 @@ export default function TaiwanStockAgentPro() {
         model,
         messages: [
           { role: 'system', content: liveSearch ? LIVE_SEARCH_SYSTEM_PROMPT : LOCAL_DATA_SYSTEM_PROMPT },
-          { role: 'user', content: buildDataDrivenPrompt(q, providedData, newsBlock) },
+          { role: 'user', content: buildDataDrivenPrompt(q, providedData, newsBlock, sentimentBlock) },
         ],
-        max_tokens: 1400,
+        max_tokens: 1700,
         temperature: 0.35,
       };
       const res = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(upstreamPayload) });
@@ -218,6 +234,7 @@ export default function TaiwanStockAgentPro() {
       const data = await res.json();
       const text = extractAiText(data);
       const sources = liveSearch ? newsItems : [];
+      const buzz = liveSearch ? (ptt?.posts || []).slice(0, 6) : [];
       const parsed = parseReport(text);
       let finalResult = null;
       if (parsed) {
@@ -226,9 +243,10 @@ export default function TaiwanStockAgentPro() {
           name: parsed.name && parsed.name !== stock.code ? parsed.name : stock.name,
           ticker: parsed.ticker || stock.code,
           _sources: sources,
+          _buzz: buzz,
         };
       } else if (text && text.trim()) {
-        finalResult = { _raw: sanitizeLeaks(text), name: stock.name, _sources: sources };
+        finalResult = { _raw: sanitizeLeaks(text), name: stock.name, _sources: sources, _buzz: buzz };
       } else {
         throw new Error('沒有取得分析結果，請稍後再試。');
       }
@@ -277,6 +295,12 @@ export default function TaiwanStockAgentPro() {
     }).filter(Boolean);
     mirrorAlertConfig(cfg);
   }, [wl.items, note]);
+
+  // 原生：自選股清單變動時，把整份清單鏡像給背景 runner（便宜訊號層監看，有狀況才亮燈）
+  useEffect(() => {
+    if (!isNative()) return;
+    mirrorWatchConfig(wl.items.map((it) => ({ code: it.code, name: it.name || it.code })));
+  }, [wl.items]);
 
   const home = !stock && !loading;
   const ta = fm.status === 'ok' ? fm.ta : null;
@@ -393,21 +417,34 @@ export default function TaiwanStockAgentPro() {
             <span className="hd-spacer" aria-hidden="true" />
           </header>
 
-          <div className="ba">
-            <div className="iw">
-              <input className="in" value={query} onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') openStock(); }}
-                placeholder="輸入股票代號，例如 2330；常見股票也可按下方快速鍵" />
+          {!stock && (
+            <div className="ba">
+              <div className="iw">
+                <input className="in" value={query} onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') openStock(); }}
+                  placeholder="輸入股票代號，例如 2330；常見股票也可按下方快速鍵" />
+              </div>
+              <button className="go" onClick={() => openStock()} disabled={loading}>
+                {loading ? <Loader2 size={17} className="spin" /> : <Search size={17} />}查詢
+              </button>
             </div>
-            <button className="go" onClick={() => openStock()} disabled={loading}>
-              {loading ? <Loader2 size={17} className="spin" /> : <Search size={17} />}查詢
-            </button>
-          </div>
+          )}
 
           <BatteryTipCard />
 
-          {/* 首頁才顯示：熱門（單行橫向滑動）。自選股 / 最近查詢 已在左上 ☰ 抽屜，首頁不重複 */}
-          {home && (
+          {/* 國泰式首頁：打開直接看到自選股走勢＋即時報價＋訊號燈 */}
+          {home && wl.items.length > 0 && (
+            <WatchlistHome
+              items={wl.items}
+              quotes={wl.quotes}
+              quotesLoading={wl.quotesLoading}
+              onSelect={(code, name) => openStock(name ? `${name} ${code}` : code)}
+              onRefresh={wl.refreshQuotes}
+            />
+          )}
+
+          {/* 熱門：只在「還沒有自選股」時當探索入口；有自選股時首頁以自選股儀表板為主，不重複 */}
+          {home && wl.items.length === 0 && (
             <div className="hot">
               <span className="hotlabel"><Star size={13} />熱門</span>
               <div className="hotrow">
@@ -429,16 +466,19 @@ export default function TaiwanStockAgentPro() {
             </div>
           )}
 
-          {home && !error && (
+          {home && !error && wl.items.length === 0 && (
             <div className="mt"><div className="t">輸入任一台股，先看價格與技術面</div>
               <div className="d">查詢即時出價格走勢、買點檢查表與法人籌碼；需要時再按「AI 深入分析」</div>
-              <div className="d2">自選股與最近查詢都收在左上角 <Menu size={13} /> 選單裡</div>
+              <div className="d2">收藏個股後，下次打開首頁就會直接看到自選股走勢與訊號燈</div>
             </div>
           )}
 
           {/* ===== 個股頁（快，不需 AI） ===== */}
           {stock && (
             <div>
+              <button className="backbtn" onClick={goHome}>
+                <ArrowLeft size={16} />{wl.items.length > 0 ? '返回自選股' : '返回首頁'}
+              </button>
               <div className="qu">
                 <div className="qt"><span className="qn">{curName || '—'}</span>
                   {curCode && <span className="qk">{curCode}</span>}</div>
@@ -481,13 +521,13 @@ export default function TaiwanStockAgentPro() {
                     <button className="aibtn aitop-btn" onClick={runAi} disabled={aiLoading}>
                       {aiLoading
                         ? <><Loader2 size={16} className="spin" />AI 分析中…</>
-                        : <><Sparkles size={16} />{result ? '重新 AI 分析' : 'AI 深入分析'}{liveSearch ? '（含 Google 新聞）' : ''}</>}
+                        : <><Sparkles size={16} />{result ? '重新 AI 分析' : 'AI 深入分析'}{liveSearch ? '（含新聞＋風向）' : ''}</>}
                     </button>
                     <label className="aitoggle aitop-toggle">
                       <input type="checkbox" checked={liveSearch} onChange={(e) => setLiveSearch(e.target.checked)} />
                       <span className="aiswitch" />
                       <span className="aitoggletx">
-                        即時新聞（Google News）<span className="aitoggled">抓近期新聞・附標題日期來源，免費（預設關）</span>
+                        即時新聞＋鄉民風向<span className="aitoggled">Google 新聞＋PTT 股板／爆料同學會風向，免費（預設關）</span>
                       </span>
                     </label>
                     <div className="aitop-hint"><Info size={12} />整理基本面 / 消息面 / 產業 / 買點 / 風險，約 20–40 秒。結果會出現在最下方，按下自動帶你過去。</div>
@@ -649,6 +689,34 @@ export default function TaiwanStockAgentPro() {
 
                 {result && !result._raw && (
                   <>
+                    {(result.lean || result.confidence || result.invalidate) && (() => {
+                      const t = result.lean || '';
+                      const cls = /偏多|看多|多方|轉強|偏向多/.test(t) ? 'good' : /偏空|看空|空方|轉弱|偏向空/.test(t) ? 'bad' : 'neutral';
+                      const label = cls === 'good' ? '偏多' : cls === 'bad' ? '偏空' : '中性';
+                      const palette = { good: '#E0413C', bad: '#26A269', neutral: '#7E7464' }; // 紅漲綠跌：偏多紅、偏空綠
+                      const invs = (result.invalidate || '').split(/\||\n/).map((s) => s.replace(/^[-•\s]+/, '').trim()).filter(Boolean);
+                      return (
+                        <div className="buy">
+                          <div className="h"><span className="ic"><TrendingUp size={17} /></span><h3>AI 看法（研究觀點，非投資建議）</h3></div>
+                          <div className="b">
+                            {result.lean && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+                                <span style={{ display: 'inline-block', padding: '2px 12px', borderRadius: 999, fontWeight: 700, color: '#fff', background: palette[cls], fontSize: 14 }}>{label}</span>
+                                <span>{result.lean}</span>
+                              </div>
+                            )}
+                            {result.confidence && <div style={{ marginBottom: invs.length ? 8 : 0 }}><b>信心度</b>：{result.confidence}</div>}
+                            {invs.length > 0 && (
+                              <div>
+                                <div style={{ fontWeight: 600, marginBottom: 4 }}>什麼情況會推翻這個看法</div>
+                                <ul style={{ margin: 0, paddingLeft: 18 }}>{invs.map((x, i) => <li key={i}>{x}</li>)}</ul>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
                     {result.buyPoint && (
                       <div className="buy">
                         <div className="h"><span className="ic"><Compass size={17} /></span><h3>買點條件觀察（研究輔助）</h3></div>
@@ -663,23 +731,28 @@ export default function TaiwanStockAgentPro() {
                       </div>
                     )}
 
-                    <div className="sech">五大面向分析</div>
-                    <div className="gr">
-                      {SECTIONS.map((s, i) => {
-                        const val = result[s.key];
-                        // 消息面即使空白也顯示卡片並標示「資料不足」
-                        if (!val && s.key !== 'news') return null;
-                        return (
-                          <div className={`cd ${val ? toneForText(val, s.key) : 'neutral'}`} key={s.key} style={{ animationDelay: `${i * 55}ms` }}>
-                            <div className="cdh"><span className="cdi"><s.Icon size={18} /></span>
-                              <div><div className="cdt">{s.title}</div><div className="cdn">{s.hint}</div></div></div>
-                            <div className="cdb">
-                              {val || <span className="insuf">資料不足：AI 未找到可佐證的近期新聞，可參考上方「近期數據事件」。</span>}
+                    <button className="sech-btn" onClick={() => setShowSections((v) => !v)} aria-expanded={showSections}>
+                      五大面向分析<span className="sech-sub">基本面 / 技術面 / 籌碼面 / 消息面 / 產業</span>
+                      <ChevronDown size={16} className="sech-chev" style={{ transform: showSections ? 'rotate(180deg)' : 'none' }} />
+                    </button>
+                    {showSections && (
+                      <div className="gr">
+                        {SECTIONS.map((s, i) => {
+                          const val = result[s.key];
+                          // 消息面即使空白也顯示卡片並標示「資料不足」
+                          if (!val && s.key !== 'news') return null;
+                          return (
+                            <div className={`cd ${val ? toneForText(val, s.key) : 'neutral'}`} key={s.key} style={{ animationDelay: `${i * 55}ms` }}>
+                              <div className="cdh"><span className="cdi"><s.Icon size={18} /></span>
+                                <div><div className="cdt">{s.title}</div><div className="cdn">{s.hint}</div></div></div>
+                              <div className="cdb">
+                                {val || <span className="insuf">資料不足：AI 未找到可佐證的近期新聞，可參考上方「近期數據事件」。</span>}
+                              </div>
                             </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+                          );
+                        })}
+                      </div>
+                    )}
 
                     {Array.isArray(result.risks) && result.risks.length > 0 && (
                       <div className="risk">
@@ -705,6 +778,18 @@ export default function TaiwanStockAgentPro() {
                         {(s.source || s.date) && (
                           <span className="srcdate">{[s.source, s.date].filter(Boolean).join(' ‧ ')}</span>
                         )}
+                      </a>
+                    ))}
+                  </div>
+                )}
+
+                {result?._buzz?.length > 0 && (
+                  <div className="srcs">
+                    <div className="srcsh"><TrendingUp size={15} />鄉民風向（PTT 股板 · 社群情緒，非投資建議）</div>
+                    {result._buzz.map((p, i) => (
+                      <a className="srcrow" key={i} href={p.url} target="_blank" rel="noopener noreferrer">
+                        <span className="srctt">{p.title}</span>
+                        <span className="srcdate">{[p.push >= 0 ? `推${p.push}` : `噓${Math.abs(p.push)}`, p.date].filter(Boolean).join(' ‧ ')}</span>
                       </a>
                     ))}
                   </div>
@@ -751,15 +836,12 @@ export default function TaiwanStockAgentPro() {
           groups={wl.groups}
           items={wl.items}
           recent={recent}
-          quotes={wl.quotes}
-          quotesLoading={wl.quotesLoading}
           currentCode={curCode}
           currentName={curName}
           currentWatched={watched}
           onSelect={onDrawerSelect}
           onSearch={onDrawerSearch}
           onRemove={onDrawerRemove}
-          onRefresh={wl.refreshQuotes}
           onAddCurrent={onAddCurrentToGroup}
           onCreateGroup={wl.createGroup}
           onRenameGroup={wl.renameGroup}

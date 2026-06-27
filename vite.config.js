@@ -7,6 +7,8 @@ const FINMIND_ENDPOINT = 'https://api.finmindtrade.com/api/v4/data';
 const YAHOO_CHART_ENDPOINT = 'https://query1.finance.yahoo.com/v8/finance/chart';
 const YAHOO_QUOTE_ENDPOINT = 'https://query1.finance.yahoo.com/v7/finance/quote';
 const GOOGLE_NEWS_ENDPOINT = 'https://news.google.com/rss/search';
+const PTT_SEARCH_ENDPOINT = 'https://www.ptt.cc/bbs/Stock/search';
+const CMONEY_FORUM_ENDPOINT = 'https://www.cmoney.tw/forum/stock';
 
 const readRequestBody = (req) =>
   new Promise((resolve, reject) => {
@@ -258,6 +260,52 @@ const aiProxy = (env) => ({
             message: `Google News request failed: ${error?.message || 'unknown error'}`,
           },
         });
+      }
+    });
+
+    server.middlewares.use('/api/ptt', async (req, res) => {
+      if (req.method !== 'GET') {
+        sendJson(res, 405, { error: { message: 'Method not allowed.' } });
+        return;
+      }
+      try {
+        const q = new URL(req.url || '', 'http://localhost').searchParams.get('q')?.trim();
+        if (!q) {
+          sendJson(res, 400, { error: { message: 'Missing query.' } });
+          return;
+        }
+        const upstream = await fetch(`${PTT_SEARCH_ENDPOINT}?q=${encodeURIComponent(q)}`, {
+          headers: { 'User-Agent': 'Mozilla/5.0', Cookie: 'over18=1' },
+        });
+        const responseBody = await upstream.text();
+        res.statusCode = upstream.status;
+        res.setHeader('Content-Type', upstream.headers.get('content-type') || 'text/html; charset=utf-8');
+        res.end(responseBody);
+      } catch (error) {
+        sendJson(res, 502, { error: { message: `PTT request failed: ${error?.message || 'unknown error'}` } });
+      }
+    });
+
+    server.middlewares.use('/api/cmoney', async (req, res) => {
+      if (req.method !== 'GET') {
+        sendJson(res, 405, { error: { message: 'Method not allowed.' } });
+        return;
+      }
+      try {
+        const code = new URL(req.url || '', 'http://localhost').searchParams.get('code')?.trim();
+        if (!code || !/^\d{4,6}$/.test(code)) {
+          sendJson(res, 400, { error: { message: 'Missing or invalid code.' } });
+          return;
+        }
+        const upstream = await fetch(`${CMONEY_FORUM_ENDPOINT}/${encodeURIComponent(code)}`, {
+          headers: { 'User-Agent': 'Mozilla/5.0' },
+        });
+        const responseBody = await upstream.text();
+        res.statusCode = upstream.status;
+        res.setHeader('Content-Type', upstream.headers.get('content-type') || 'text/html; charset=utf-8');
+        res.end(responseBody);
+      } catch (error) {
+        sendJson(res, 502, { error: { message: `CMoney request failed: ${error?.message || 'unknown error'}` } });
       }
     });
 

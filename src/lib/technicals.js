@@ -1,4 +1,5 @@
 /* 技術指標（前端用真實股價計算） */
+import { computeLevels, summarizeLevels } from './levels.js';
 
 const mean = (a) => a.reduce((s, x) => s + x, 0) / a.length;
 export const rollMean = (a, n) => a.map((_, i) => (i < n - 1 ? null : mean(a.slice(i - n + 1, i + 1))));
@@ -78,66 +79,82 @@ export function computeTA(pr) {
   const ma60 = MA60[i] || c;
   const priorHigh = rh[i - 1] || c;
 
-  // 1) 先依 regime 算「觀察買點區間」（只依賴均線／ATR／現價）
+  // 真實支撐壓力（前高前低／成交密集區／缺口／整數關），取代純 MA±ATR 公式
+  const levels = computeLevels(pr);
+  const sup = levels?.nearestSupport?.price ?? null;    // 定義多方論點的最近支撐
+  const res = levels?.nearestResistance?.price ?? null; // 上方最近壓力
+  const res2 = levels?.resistances?.[1]?.price ?? null; // 次一壓力（給第二目標）
+
+  // 1) 觀察買點區：以「最近真實支撐」為下緣，上緣取支撐到現價的下半段（不追高到現價）
   let entryLow;
   let entryHigh;
   let mode;
   let planNote;
-  if (c < ma60) {
-    mode = '先觀察，不急著接';
-    entryLow = ma60;
-    entryHigh = ma60 * 1.02;
-    planNote = '股價還在季線下方，先等重新站回季線並守住，再談進場。';
-  } else if (trendPass >= 4 && hasTrig) {
-    mode = '突破後回測觀察';
-    entryLow = Math.max(ma60, ma20 - atr * 0.35);
-    entryHigh = Math.min(c, Math.max(ma20, ma60) + atr * 0.8);
-    planNote = '趨勢與訊號已成形，偏向等拉回不破短均或突破線附近，而不是盲目追高。';
-  } else if (trendPass >= 4) {
-    mode = '等拉回或突破';
-    entryLow = Math.max(ma60, ma20 - atr * 0.5);
-    entryHigh = Math.max(ma20, ma60) + atr * 0.5;
-    planNote = '趨勢偏多但訊號不足，等量價確認或回測支撐再評估。';
+  if (sup != null && sup < c) {
+    entryLow = sup;
+    entryHigh = Math.min(c, sup + Math.max((c - sup) * 0.5, sup * 0.01));
+    if (entryHigh <= entryLow) entryHigh = sup * 1.01;
   } else {
-    mode = '整理區觀察';
+    // 沒有可靠支撐資料時，退回季線附近觀察
     entryLow = ma60 * 0.98;
     entryHigh = ma60 * 1.02;
-    planNote = '條件還沒有明顯站在多方，先看能不能站穩季線與量能轉強。';
+  }
+  if (c < ma60) {
+    mode = '先觀察，不急著接';
+    planNote = sup != null
+      ? `股價在季線下方，偏弱；若要觀察，重點是能否守住 ${roundToTick(sup, 'nearest')} 附近支撐並重新站回季線。`
+      : '股價還在季線下方，先等重新站回季線並守住，再談進場。';
+  } else if (trendPass >= 4 && hasTrig) {
+    mode = '拉回支撐或突破壓力後觀察';
+    planNote = `趨勢與訊號已成形，偏向等拉回 ${roundToTick(entryLow, 'nearest')}–${roundToTick(entryHigh, 'nearest')} 支撐不破，或帶量突破 ${res != null ? roundToTick(res, 'up') : '上方壓力'} 後回測守住，而不是盲目追高。`;
+  } else if (trendPass >= 4) {
+    mode = '等拉回支撐或量價確認';
+    planNote = '趨勢偏多但訊號不足，等回測支撐獲得守住、或量價突破壓力再評估。';
+  } else {
+    mode = '整理區觀察';
+    planNote = '條件還沒有明顯站在多方，先看能不能站穩支撐與量能轉強。';
   }
   if (entryLow > entryHigh) [entryLow, entryHigh] = [entryHigh, entryLow];
   entryLow = roundToTick(entryLow, 'nearest');
   entryHigh = roundToTick(entryHigh, 'nearest');
   if (entryLow > entryHigh) [entryLow, entryHigh] = [entryHigh, entryLow];
 
-  // 2) 以「觀察區上緣」為假設買價，停損／風險／停利皆用同一基準，2R/3R 才名實相符
+  // 2) 停損：跌破「定義多方論點的支撐」就收手 → 支撐下緣留緩衝；以觀察區上緣為假設買價
   const refEntry = entryHigh;
-  let stopLine = bounded(
-    Math.max(recentLow, ma60 * 0.98, refEntry * 0.92),
-    refEntry * 0.86,
-    refEntry * 0.985,
-  );
+  const stopBase = sup != null ? sup : Math.max(recentLow, ma60 * 0.98);
+  let stopLine = stopBase * 0.985; // 支撐下方約 1.5% 緩衝，避免被巧合掃到
   const minStop = Math.max(atr, refEntry * 0.03); // 停損與買價至少相隔 1×ATR 或 3%
-  if (refEntry - stopLine < minStop) stopLine = refEntry - minStop; // 太近就「放寬停損」，而非灌大目標
-  stopLine = bounded(stopLine, refEntry * 0.86, refEntry * 0.985);
+  if (refEntry - stopLine < minStop) stopLine = refEntry - minStop; // 太近就放寬停損，而非灌大目標
+  stopLine = bounded(stopLine, refEntry * 0.85, refEntry * 0.985);
   stopLine = roundToTick(stopLine, 'down'); // 停損向下對齊（稍遠一點、較不易被巧合掃到）
 
-  const risk = refEntry - stopLine; // 單一一致的 1R（取代舊的 Math.max(c - stopLine, atr)）
+  const risk = refEntry - stopLine; // 單一一致的 1R
+  // 3) 停利／目標：優先用真實壓力，壓力不足才用 R 倍數補；突破參考用真實最近壓力
+  let tp1 = res != null && res > refEntry ? res : refEntry + risk * 2;
+  let tp2 = res2 != null && res2 > tp1 ? res2 : Math.max(tp1 + risk, refEntry + risk * 3);
+  const target1IsResistance = res != null && res > refEntry;
+  const rr1 = risk > 0 ? (tp1 - refEntry) / risk : null; // 第一目標的風險報酬比
+
   const tradePlan = {
     cls,
     mode,
     entryLow,
     entryHigh,
-    breakout: roundToTick(priorHigh, 'up'),
+    support: sup != null ? roundToTick(sup, 'nearest') : null,
+    resistance: res != null ? roundToTick(res, 'nearest') : null,
+    breakout: roundToTick(res != null ? res : priorHigh, 'up'),
     stopLine,
-    takeProfit1: roundToTick(refEntry + risk * 2, 'nearest'),
-    takeProfit2: roundToTick(refEntry + risk * 3, 'nearest'),
+    takeProfit1: roundToTick(tp1, 'nearest'),
+    takeProfit2: roundToTick(tp2, 'nearest'),
+    target1IsResistance,
+    rr1: rr1 != null ? Number(rr1.toFixed(2)) : null,
     trailStop: roundToTick(Math.max(ma20, refEntry - atr * 1.5), 'down'),
     risk,
     note: planNote,
   };
   return {
     close: c, ma60: MA60[i], k: K[i], d: D[i], rsi: RSI[i], trend, trigger, trendPass, hasTrig,
-    regime, cls, verdict, recentLow, tradePlan,
+    regime, cls, verdict, recentLow, tradePlan, levels, levelsSummary: summarizeLevels(levels),
   };
 }
 

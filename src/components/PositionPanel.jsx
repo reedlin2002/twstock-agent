@@ -4,13 +4,14 @@
  * 勾選「納入 AI 分析」後，按 AI 分析時會把這些數字一起帶入，產生個人化進出場說明。
  */
 import { useEffect, useState } from 'react';
-import { Wallet, Sparkles } from 'lucide-react';
+import { Wallet, Sparkles, ChevronDown } from 'lucide-react';
 import { buildPositionPlan } from '../lib/positionPlan.js';
 import { pf } from '../lib/format.js';
 
 const money = (x) => (x == null ? '—' : Math.round(x).toLocaleString());
 
 export default function PositionPanel({ note, latestClose, tradePlan, enabled, onEnabledChange, onPositionChange }) {
+  const [open, setOpen] = useState(false); // 預設收起，點開才展開（減少個股頁資訊量）
   const [held, setHeld] = useState(false);
   const [buyPrice, setBuyPrice] = useState('');
   const [shares, setShares] = useState('');
@@ -41,7 +42,10 @@ export default function PositionPanel({ note, latestClose, tradePlan, enabled, o
   return (
     <div className={`pos ${enabled ? 'on' : ''}`}>
       <div className="pos-hd">
-        <div className="pos-tt"><Wallet size={15} />我的部位 · 個人化進出場</div>
+        <button type="button" className="pos-tt pos-tt-btn" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+          <Wallet size={15} />我的部位 · 個人化進出場
+          <ChevronDown size={15} className="pos-chev" style={{ transform: open ? 'rotate(180deg)' : 'none' }} />
+        </button>
         <label className="pos-switch">
           <input type="checkbox" checked={enabled} onChange={(e) => onEnabledChange?.(e.target.checked)} />
           <span className="aiswitch" />
@@ -49,6 +53,8 @@ export default function PositionPanel({ note, latestClose, tradePlan, enabled, o
         </label>
       </div>
 
+      {open && (
+        <>
       <div className="pos-seg">
         <button type="button" className={held ? 'on' : ''} onClick={() => setHeld(true)}>持有中</button>
         <button type="button" className={!held ? 'on' : ''} onClick={() => setHeld(false)}>還沒買（規劃）</button>
@@ -96,6 +102,8 @@ export default function PositionPanel({ note, latestClose, tradePlan, enabled, o
 
       {enabled && (
         <div className="pos-hint"><Sparkles size={12} />按下「AI 深入分析」會一起帶入你的部位，產出個人化進出場說明（條件提醒，非買賣建議）。</div>
+      )}
+        </>
       )}
     </div>
   );

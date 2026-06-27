@@ -135,6 +135,20 @@ export async function mirrorAlertConfig(list) {
   } catch { /* runner 不在或失敗都不影響主流程 */ }
 }
 
+// 把整份自選股清單（code+name）丟給 runner，供背景「便宜訊號層」監看（有狀況才亮燈）
+export async function mirrorWatchConfig(list) {
+  if (!isNative()) return;
+  const BR = await loadBackgroundRunner();
+  if (!BR) return;
+  try {
+    await BR.dispatchEvent({
+      label: RUNNER_LABEL,
+      event: 'saveWatch',
+      details: { watch: Array.isArray(list) ? list : [] },
+    });
+  } catch { /* runner 不在或失敗都不影響主流程 */ }
+}
+
 /* ---------- App 生命週期 / 通知點擊 ---------- */
 
 // 註冊「點擊通知」回呼，cb 收到 { code }。回傳取消註冊函式。

@@ -46,11 +46,67 @@ async function fetchClose(code) {
   return null;
 }
 
+// 台北日期 YYYYMMDD（給「每檔每日只提醒一次」去重）
+function ymdTaipei() {
+  var now = new Date();
+  var tpe = new Date(now.getTime() + (now.getTimezoneOffset() + 480) * 60000);
+  return '' + tpe.getFullYear() + (tpe.getMonth() + 1) + tpe.getDate();
+}
+
+// 抓近一個月日收盤＋現價＋昨收：給自選股「便宜訊號層」用（動能訊號＋當日漲跌）
+async function fetchDaily(code) {
+  var syms = (code.indexOf('.TW') >= 0) ? [code] : [code + '.TW', code + '.TWO'];
+  for (var i = 0; i < syms.length; i++) {
+    try {
+      var r = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(syms[i]) + '?range=1mo&interval=1d');
+      if (!r.ok) continue;
+      var j = await r.json();
+      var res = j && j.chart && j.chart.result && j.chart.result[0];
+      if (!res) continue;
+      var meta = res.meta || {};
+      var q = res.indicators && res.indicators.quote && res.indicators.quote[0];
+      var raw = (q && q.close) ? q.close : [];
+      var closes = [];
+      for (var k = 0; k < raw.length; k++) { if (raw[k] != null) closes.push(raw[k]); }
+      if (!closes.length) continue;
+      var price = (typeof meta.regularMarketPrice === 'number') ? meta.regularMarketPrice : closes[closes.length - 1];
+      var prevClose = (typeof meta.chartPreviousClose === 'number') ? meta.chartPreviousClose
+        : (typeof meta.previousClose === 'number') ? meta.previousClose
+        : (closes.length > 1 ? closes[closes.length - 2] : null);
+      return { closes: closes, price: price, prevClose: prevClose };
+    } catch (e) { /* try next symbol */ }
+  }
+  return null;
+}
+
+// 迷你走勢動能訊號（與前端 signal.js 同邏輯）：up / down / neutral
+function quickSignal(spark) {
+  var a = [];
+  for (var i = 0; i < spark.length; i++) { if (spark[i] != null) a.push(spark[i]); }
+  if (a.length < 6) return 'neutral';
+  function mean(arr) { var s = 0; for (var k = 0; k < arr.length; k++) s += arr[k]; return arr.length ? s / arr.length : 0; }
+  var last = a[a.length - 1];
+  var maShort = mean(a.slice(-5));
+  var maLong = mean(a.slice(-Math.min(a.length, 20)));
+  if (last >= maShort && maShort >= maLong) return 'up';
+  if (last <= maShort && maShort <= maLong) return 'down';
+  return 'neutral';
+}
+
 // App 端推送設定 → 存進 KV 供排程事件讀取
 addEventListener('saveConfig', function (resolve, reject, args) {
   try {
     var config = (args && args.config) ? args.config : [];
     CapacitorKV.set('alertConfig', JSON.stringify(config));
+    resolve();
+  } catch (e) { reject(e); }
+});
+
+// App 端推送「整份自選股清單」→ 存進 KV，供背景便宜訊號層監看（有狀況才亮燈）
+addEventListener('saveWatch', function (resolve, reject, args) {
+  try {
+    var watch = (args && args.watch) ? args.watch : [];
+    CapacitorKV.set('watchConfig', JSON.stringify(watch));
     resolve();
   } catch (e) { reject(e); }
 });
@@ -92,6 +148,39 @@ addEventListener('priceAlerts', async function (resolve, reject) {
     }
 
     try { CapacitorKV.set('alertFired', JSON.stringify(fired)); } catch (e) { /* no-op */ }
+
+    // 自選股「便宜訊號層」：大漲/大跌或動能訊號翻轉就亮燈（每檔每日去重，不洗版、不跑 AI）
+    var watch = [];
+    try { var rw = CapacitorKV.get('watchConfig'); watch = (rw && rw.value) ? JSON.parse(rw.value) : []; } catch (e) { watch = []; }
+    if (watch.length) {
+      var lastSig = {};
+      try { var ls = CapacitorKV.get('signalState'); lastSig = (ls && ls.value) ? JSON.parse(ls.value) : {}; } catch (e) { lastSig = {}; }
+      var watchFired = {};
+      try { var wf = CapacitorKV.get('watchFired'); watchFired = (wf && wf.value) ? JSON.parse(wf.value) : {}; } catch (e) { watchFired = {}; }
+      var today = ymdTaipei();
+      for (var w = 0; w < watch.length; w++) {
+        var wit = watch[w];
+        if (!wit || !wit.code) continue;
+        var d = await fetchDaily(wit.code);
+        if (!d) continue;
+        var sig = quickSignal(d.closes);
+        var chgPct = (d.prevClose && d.price != null) ? ((d.price - d.prevClose) / d.prevClose) * 100 : null;
+        var prevSig = lastSig[wit.code] || null;
+        var flipped = prevSig && sig !== 'neutral' && sig !== prevSig;
+        var bigMove = chgPct != null && Math.abs(chgPct) >= 4;
+        lastSig[wit.code] = sig;
+        if ((flipped || bigMove) && watchFired[wit.code] !== today) {
+          watchFired[wit.code] = today;
+          var label = bigMove
+            ? ((chgPct >= 0 ? '大漲 +' : '大跌 ') + chgPct.toFixed(1) + '%')
+            : ('動能轉' + (sig === 'up' ? '多' : '空'));
+          notes.push({ id: hashId('watch:' + wit.code), title: (wit.name || wit.code) + ' 有狀況', body: '現價 ' + (d.price != null ? d.price : '—') + '，' + label + '（點開看完整分析）' });
+        }
+      }
+      try { CapacitorKV.set('signalState', JSON.stringify(lastSig)); } catch (e) { /* no-op */ }
+      try { CapacitorKV.set('watchFired', JSON.stringify(watchFired)); } catch (e) { /* no-op */ }
+    }
+
     if (notes.length) { try { CapacitorNotifications.schedule(notes); } catch (e) { /* no-op */ } }
     resolve();
   } catch (e) { reject(e); }

@@ -464,3 +464,49 @@
 .dt-tab svg{flex:none;}
 .dt-stack{display:flex;flex-direction:column;gap:14px;}
 @media(prefers-reduced-motion:reduce){.aisec.hl{animation:none;}}
+
+/* 國泰式自選股首頁儀表板 */
+.wh-wrap{margin-top:22px;background:var(--ink2);border:1px solid var(--line);border-radius:17px;overflow:hidden;}
+.wh-head{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line);}
+.wh-tt{display:inline-flex;align-items:center;gap:7px;font-size:14px;font-weight:800;color:var(--pap);}
+.wh-tt svg{color:var(--gold);}
+.wh-n{font-family:var(--fm);font-size:12px;color:var(--faint);background:var(--ink3);border:1px solid var(--line);border-radius:999px;padding:1px 8px;margin-inline-start:2px;}
+.wh-ov{display:inline-flex;gap:8px;font-family:var(--fm);font-size:12px;margin-inline-start:4px;}
+.wh-ov .u{color:var(--up);}.wh-ov .d{color:var(--dn);}
+.wh-icon{width:30px;height:30px;border-radius:8px;background:var(--ink3);border:1px solid var(--line);color:var(--dim);display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;}
+.wh-icon:first-of-type{margin-inline-start:auto;}
+.wh-icon:hover{border-color:var(--gold);color:var(--pap);}.wh-icon:disabled{opacity:.5;cursor:not-allowed;}
+.wh-list{display:flex;flex-direction:column;}
+.wh-row{display:flex;align-items:center;gap:12px;padding:12px 16px;background:transparent;border:none;border-top:1px solid var(--line);width:100%;text-align:left;cursor:pointer;color:var(--pap);font-family:var(--fcjk);transition:background .12s;}
+.wh-row:first-child{border-top:none;}
+.wh-row:hover{background:var(--ink3);}
+.wh-left{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1;}
+.wh-name{font-size:15px;font-weight:700;display:flex;align-items:baseline;gap:7px;min-width:0;}
+.wh-name .wh-code{font-family:var(--fm);font-size:12px;color:var(--gold);font-weight:600;}
+.wh-sub{display:inline-flex;align-items:center;gap:8px;font-size:11.5px;color:var(--dim);font-family:var(--fm);}
+.wh-sig{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none;}
+.wh-pnl.u{color:var(--up);}.wh-pnl.d{color:var(--dn);}
+.wh-spark{flex:none;opacity:.95;}
+.wh-right{display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex:none;min-width:74px;}
+.wh-prc{font-family:var(--fm);font-size:16px;font-weight:700;}
+.wh-prc.dim{color:var(--faint);}
+.wh-chg{font-family:var(--fm);font-size:12px;}
+.wh-chg.u{color:var(--up);}.wh-chg.d{color:var(--dn);}
+.wh-arrow{color:var(--faint);flex:none;}
+.wh-foot{padding:10px 16px;border-top:1px solid var(--line);font-size:11px;color:var(--faint);line-height:1.5;}
+
+/* 個股頁返回鍵（明確回首頁/自選股，取代只能點 logo） */
+.backbtn{display:inline-flex;align-items:center;gap:6px;margin-top:20px;background:var(--ink2);border:1px solid var(--line);color:var(--dim);border-radius:10px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:var(--fcjk);transition:border-color .15s,color .15s;}
+.backbtn:hover{border-color:var(--gold);color:var(--pap);}
+.backbtn+.qu{margin-top:12px;}
+
+/* 收合：部位面板標題鍵 */
+.pos-tt-btn{background:none;border:none;cursor:pointer;color:inherit;font:inherit;display:inline-flex;align-items:center;gap:7px;padding:0;}
+.pos-chev{margin-inline-start:2px;color:var(--faint);transition:transform .18s;flex:none;}
+
+/* 五大面向手風琴標題鍵 */
+.sech-btn{display:flex;align-items:center;gap:8px;width:100%;background:var(--ink2);border:1px solid var(--line);border-radius:12px;margin:18px 0 0;padding:12px 15px;cursor:pointer;color:var(--pap);font-family:var(--fcjk);font-weight:700;font-size:14px;text-align:left;transition:border-color .15s;}
+.sech-btn:hover{border-color:var(--gold);}
+.sech-sub{font-weight:500;font-size:11px;color:var(--faint);font-family:var(--fm);margin-inline-start:8px;}
+.sech-chev{margin-inline-start:auto;color:var(--faint);transition:transform .18s;flex:none;}
+.sech-btn+.gr{margin-top:14px;}

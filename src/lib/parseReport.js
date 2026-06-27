@@ -2,8 +2,10 @@
 
 const KEYMAP = {
   NAME: 'name', TICKER: 'ticker', EXCHANGE: 'exchange', SECTOR: 'sector', SNAPSHOT: 'snapshot',
+  LEAN: 'lean', CONFIDENCE: 'confidence',
   FUNDAMENTAL: 'fundamental', TECHNICAL: 'technical', CHIPS: 'chips', NEWS: 'news',
-  INDUSTRY: 'industry', BUYPOINT: 'buyPoint', POSITION: 'position', RISKS: 'risks', DATANOTE: 'dataNote',
+  INDUSTRY: 'industry', BUYPOINT: 'buyPoint', INVALIDATE: 'invalidate', POSITION: 'position',
+  RISKS: 'risks', DATANOTE: 'dataNote',
 };
 
 // AI 偶爾會把提示詞/JSON 裡的內部資料欄位名（providedData.* / tradePlan 等）寫進內文，
@@ -23,6 +25,10 @@ const LEAK_TERMS = [
   [/\btradePlan\b/gi, '買賣計畫'],
   [/\bpriceSeries\b/gi, '股價走勢'],
   [/\btrendChecklist\b/gi, '趨勢檢查表'],
+  [/\bkeyLevels\b/gi, '支撐壓力'],
+  [/\bbigHolders\b/gi, '大戶持股'],
+  [/\binstitutionalStreak\b/gi, '法人連買'],
+  [/\bshortMarginRatio\b/gi, '券資比'],
 ];
 
 // 清理外洩欄位名，並收掉替換後殘留的空白
