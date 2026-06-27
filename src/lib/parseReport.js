@@ -4,8 +4,8 @@ const KEYMAP = {
   NAME: 'name', TICKER: 'ticker', EXCHANGE: 'exchange', SECTOR: 'sector', SNAPSHOT: 'snapshot',
   LEAN: 'lean', CONFIDENCE: 'confidence',
   FUNDAMENTAL: 'fundamental', TECHNICAL: 'technical', CHIPS: 'chips', NEWS: 'news',
-  INDUSTRY: 'industry', BUYPOINT: 'buyPoint', INVALIDATE: 'invalidate', POSITION: 'position',
-  RISKS: 'risks', DATANOTE: 'dataNote',
+  INDUSTRY: 'industry', BUYPOINT: 'buyPoint', INVALIDATE: 'invalidate', INVLEVEL: 'invLevel',
+  POSITION: 'position', RISKS: 'risks', DATANOTE: 'dataNote',
 };
 
 // AI 偶爾會把提示詞/JSON 裡的內部資料欄位名（providedData.* / tradePlan 等）寫進內文，

@@ -2,11 +2,11 @@ import { useState, useEffect, useRef } from 'react';
 import {
   Search, Newspaper, AlertTriangle, BarChart3,
   Compass, Loader2, Info, RefreshCw, TrendingUp,
-  Star, Notebook, Copy, Check, Sparkles, Menu, Wallet, ArrowLeft, ChevronDown,
+  Star, Notebook, Copy, Check, Sparkles, Menu, Wallet, ArrowLeft, ChevronDown, History,
 } from 'lucide-react';
 import {
   ComposedChart, Area, Line, XAxis, YAxis,
-  Tooltip, ResponsiveContainer, CartesianGrid,
+  Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine, ReferenceArea,
 } from 'recharts';
 
 import './styles/app.css';
@@ -36,6 +36,7 @@ import {
   setOngoing, cancelNotify, notify, NOTIF, onNotificationTap, mirrorAlertConfig, mirrorWatchConfig,
 } from './lib/native.js';
 import { loadAiResult, saveAiResult, savePending, clearPending } from './lib/analysisStore.js';
+import { saveVerdict, loadVerdicts, scoreVerdicts, latestInvalidation, leanDir, parseInvLevel } from './lib/verdictStore.js';
 import { buildDataEvents } from './lib/derivedEvents.js';
 import { buildMarkdownReport } from './lib/markdownReport.js';
 import { buildHoldingStatus } from './lib/holdingStatus.js';
@@ -70,6 +71,8 @@ export default function TaiwanStockAgentPro() {
   const [position, setPosition] = useState(null);        // 個人部位輸入（PositionPanel 回報）
   const [aiHl, setAiHl] = useState(false);               // AI 結果出現時的高亮脈動
   const [showSections, setShowSections] = useState(false); // 五大面向預設收起（先看結論，要看細節再展開）
+  const [showPlan, setShowPlan] = useState(true);          // 走勢圖上是否疊買賣計畫（買點區/停損/目標）
+  const [verdictTick, setVerdictTick] = useState(0);       // 存了新看法後 bump，讓戰績卡與推翻監看更新
   const aiSecRef = useRef(null);                          // AI 區錨點（按下後自動捲到此）
   const openStockRef = useRef(null);                      // 供原生通知點擊深連結呼叫最新的 openStock
 
@@ -252,6 +255,18 @@ export default function TaiwanStockAgentPro() {
       }
       setResult(finalResult);
       saveAiResult(stock.code, stock.name, finalResult); // 持久化，滑掉重開也看得到
+      // 記錄這次 AI 看法（傾向＋信心度＋推翻價位），供「戰績」回查與背景推翻監看
+      if (parsed) {
+        const { level: invLevel, dir: invDir } = parseInvLevel(parsed.invLevel);
+        saveVerdict(stock.code, stock.name, {
+          price: latestClose ?? null,
+          lean: leanDir(parsed.lean || ''),
+          confidence: parsed.confidence || '',
+          invalidate: parsed.invalidate || '',
+          invLevel, invDir,
+        });
+        setVerdictTick((t) => t + 1);
+      }
       // 完成：收掉進行中、發完成通知（手機可從通知點回此股）
       clearPending();
       if (isNative()) {
@@ -296,11 +311,14 @@ export default function TaiwanStockAgentPro() {
     mirrorAlertConfig(cfg);
   }, [wl.items, note]);
 
-  // 原生：自選股清單變動時，把整份清單鏡像給背景 runner（便宜訊號層監看，有狀況才亮燈）
+  // 原生：自選股清單／最新 AI 看法變動時，把清單（含推翻價位）鏡像給背景 runner
   useEffect(() => {
     if (!isNative()) return;
-    mirrorWatchConfig(wl.items.map((it) => ({ code: it.code, name: it.name || it.code })));
-  }, [wl.items]);
+    mirrorWatchConfig(wl.items.map((it) => {
+      const inv = latestInvalidation(it.code);
+      return { code: it.code, name: it.name || it.code, invLevel: inv?.level ?? null, invDir: inv?.dir ?? null, lean: inv?.lean ?? null };
+    }));
+  }, [wl.items, verdictTick]);
 
   const home = !stock && !loading;
   const ta = fm.status === 'ok' ? fm.ta : null;
@@ -328,6 +346,23 @@ export default function TaiwanStockAgentPro() {
     const chgPct = prev && prev.close ? (chg / prev.close) * 100 : null;
     return { close: last.close, date: last.date, chg, chgPct };
   })();
+
+  // 走勢圖買賣計畫疊圖：y 軸 domain 自動含括各價位，確保停損/目標也看得到
+  const tp = ta?.tradePlan || null;
+  const chartDomain = (() => {
+    if (!showPlan || !tp || !(fm.status === 'ok') || !fm.price?.length) return ['auto', 'auto'];
+    const closes = fm.price.map((p) => p.close).filter(Number.isFinite);
+    const lv = [tp.entryLow, tp.entryHigh, tp.stopLine, tp.breakout, tp.takeProfit1].filter((v) => Number.isFinite(v));
+    if (!closes.length) return ['auto', 'auto'];
+    const lo = Math.min(...closes, ...lv);
+    const hi = Math.max(...closes, ...lv);
+    const pad = (hi - lo) * 0.05 || 1;
+    return [Math.floor(lo - pad), Math.ceil(hi + pad)];
+  })();
+
+  // AI 看法戰績（依本機歷史看法 + 目前股價回查命中率）；存了新看法（verdictTick）會重讀
+  const verdictHist = curCode ? loadVerdicts(curCode) : [];
+  const verdictScore = (curCode && latestClose != null) ? scoreVerdicts(curCode, latestClose) : null;
 
   const onToggleWatch = () => {
     if (!curCode) return;
@@ -582,7 +617,13 @@ export default function TaiwanStockAgentPro() {
 
               {/* 股價走勢圖 */}
               <div className="pn">
-                <div className="ph"><span className="ic"><TrendingUp size={17} /></span><h3>股價走勢</h3><span className="src">Yahoo Finance</span></div>
+                <div className="ph"><span className="ic"><TrendingUp size={17} /></span><h3>股價走勢</h3><span className="src">Yahoo Finance</span>
+                  {tp && (
+                    <label className="chart-toggle">
+                      <input type="checkbox" checked={showPlan} onChange={(e) => setShowPlan(e.target.checked)} />買賣計畫
+                    </label>
+                  )}
+                </div>
                 {fm.status === 'loading' && <div className="mn"><Loader2 size={15} className="spin" />載入即時行情中…</div>}
                 {fm.status === 'fail' && <div className="mn">Yahoo Finance 股價無法載入{activeCode && <button className="rt" onClick={() => loadFinmind(activeCode)}><RefreshCw size={12} />重試</button>}</div>}
                 {fm.status === 'ok' && fm.price && (
@@ -591,6 +632,13 @@ export default function TaiwanStockAgentPro() {
                       <span><i style={{ background: '#E2A636' }} />收盤</span>
                       <span><i style={{ background: '#5AA9FF' }} />月線 MA20</span>
                       <span><i style={{ background: '#FF85B9' }} />季線 MA60</span>
+                      {showPlan && tp && (
+                        <>
+                          <span><i style={{ background: 'rgba(226,166,54,.35)' }} />買點區</span>
+                          <span><i style={{ background: '#E0413C' }} />停損</span>
+                          <span><i style={{ background: '#9B8CFF' }} />目標</span>
+                        </>
+                      )}
                     </div>
                     <ResponsiveContainer width="100%" height={244}>
                       <ComposedChart data={fm.price} margin={{ top: 6, right: 6, left: -10, bottom: 0 }}>
@@ -599,12 +647,23 @@ export default function TaiwanStockAgentPro() {
                           <stop offset="100%" stopColor="#E2A636" stopOpacity={0} />
                         </linearGradient></defs>
                         <CartesianGrid stroke="#2C261E" vertical={false} />
+                        {showPlan && tp && tp.entryLow != null && tp.entryHigh != null && (
+                          <ReferenceArea y1={tp.entryLow} y2={tp.entryHigh} fill="#E2A636" fillOpacity={0.12} stroke="#E2A636" strokeOpacity={0.35} strokeDasharray="3 3" ifOverflow="extendDomain" />
+                        )}
                         <XAxis dataKey="date" tickFormatter={fmtMD} minTickGap={42} tick={{ fill: '#8C8472', fontSize: 10 }} stroke="#3A3025" />
-                        <YAxis domain={['auto', 'auto']} width={42} tick={{ fill: '#8C8472', fontSize: 10 }} stroke="#3A3025" />
+                        <YAxis domain={chartDomain} width={42} tick={{ fill: '#8C8472', fontSize: 10 }} stroke="#3A3025" allowDataOverflow={false} />
                         <Tooltip content={<PriceTip />} />
                         <Area type="monotone" dataKey="close" stroke="#E2A636" strokeWidth={1.7} fill="url(#gc)" dot={false} />
                         <Line type="monotone" dataKey="ma20" stroke="#5AA9FF" strokeWidth={1} dot={false} />
                         <Line type="monotone" dataKey="ma60" stroke="#FF85B9" strokeWidth={1} dot={false} />
+                        {showPlan && tp && tp.stopLine != null && (
+                          <ReferenceLine y={tp.stopLine} stroke="#E0413C" strokeDasharray="5 3" strokeWidth={1.2} ifOverflow="extendDomain"
+                            label={{ value: `停損 ${pf(tp.stopLine)}`, position: 'insideBottomLeft', fill: '#E0413C', fontSize: 10 }} />
+                        )}
+                        {showPlan && tp && tp.takeProfit1 != null && (
+                          <ReferenceLine y={tp.takeProfit1} stroke="#9B8CFF" strokeDasharray="5 3" strokeWidth={1.2} ifOverflow="extendDomain"
+                            label={{ value: `目標 ${pf(tp.takeProfit1)}`, position: 'insideTopLeft', fill: '#9B8CFF', fontSize: 10 }} />
+                        )}
                       </ComposedChart>
                     </ResponsiveContainer>
                   </>
@@ -716,6 +775,30 @@ export default function TaiwanStockAgentPro() {
                         </div>
                       );
                     })()}
+
+                    {verdictHist.length > 0 && (
+                      <div className="track">
+                        <div className="track-h"><History size={15} />AI 看法戰績 · {curName}</div>
+                        {verdictScore && verdictScore.total > 0 ? (
+                          <>
+                            <div className="track-rate"><b>{Math.round(verdictScore.rate * 100)}%</b>
+                              <span>近 {verdictScore.total} 次有方向看法命中 {verdictScore.hits} 次{verdictScore.pending > 0 ? `（另 ${verdictScore.pending} 次太新或中性未計）` : ''}</span>
+                            </div>
+                            <div className="track-list">
+                              {verdictScore.judged.slice(0, 3).map((v, i) => (
+                                <div className="track-row" key={i}>
+                                  <span className={`track-dot ${v.lean === 'up' ? 'u' : 'd'}`} />
+                                  <span className="track-when">{v.date} · {v.lean === 'up' ? '偏多' : '偏空'}</span>
+                                  <span className={`track-res ${v.hit ? 'ok' : 'no'}`}>{v.hit ? '命中' : '未中'} {v.ret >= 0 ? '+' : ''}{(v.ret * 100).toFixed(1)}%</span>
+                                </div>
+                              ))}
+                            </div>
+                          </>
+                        ) : (
+                          <div className="track-pending">已記錄 {verdictHist.length} 次看法，需約 3 天兌現後開始計分。每次分析都會累積，慢慢就看得出 AI 在這檔準不準。</div>
+                        )}
+                      </div>
+                    )}
 
                     {result.buyPoint && (
                       <div className="buy">

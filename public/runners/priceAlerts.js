@@ -93,6 +93,61 @@ function quickSignal(spark) {
   return 'neutral';
 }
 
+// 抓全市場「當日重大訊息」（TWSE OpenAPI），過濾出自選股代號 → { code: 主旨 }
+async function fetchMopsEvents(codes) {
+  try {
+    var r = await fetch('https://openapi.twse.com.tw/v1/opendata/t187ap04_L');
+    if (!r.ok) return {};
+    var arr = await r.json();
+    if (!arr || !arr.length) return {};
+    var want = {};
+    for (var i = 0; i < codes.length; i++) want[codes[i]] = true;
+    var out = {};
+    for (var j = 0; j < arr.length; j++) {
+      var row = arr[j];
+      var code = row['公司代號'];
+      if (want[code] && !out[code]) out[code] = row['主旨 '] || row['主旨'] || '有重大訊息';
+    }
+    return out;
+  } catch (e) { return {}; }
+}
+
+// 每日盤後自選股簡報：一天一次，彙整偏多/偏空家數 + 重大訊息（用收盤後維持的 signalState）
+async function maybeDailyBrief() {
+  var now = new Date();
+  var tpe = new Date(now.getTime() + (now.getTimezoneOffset() + 480) * 60000);
+  var day = tpe.getDay();
+  if (day === 0 || day === 6) return;
+  var mins = tpe.getHours() * 60 + tpe.getMinutes();
+  if (mins < 13 * 60 + 35 || mins > 22 * 60) return; // 只在收盤後到晚間發
+  var today = ymdTaipei();
+  var bf = '';
+  try { var b = CapacitorKV.get('briefFired'); bf = (b && b.value) ? b.value : ''; } catch (e) { bf = ''; }
+  if (bf === today) return;
+  var watch = [];
+  try { var rw = CapacitorKV.get('watchConfig'); watch = (rw && rw.value) ? JSON.parse(rw.value) : []; } catch (e) { watch = []; }
+  if (!watch.length) return;
+  var lastSig = {};
+  try { var ls = CapacitorKV.get('signalState'); lastSig = (ls && ls.value) ? JSON.parse(ls.value) : {}; } catch (e) { lastSig = {}; }
+  var ups = 0;
+  var downs = 0;
+  var codes = [];
+  var nameByCode = {};
+  for (var i = 0; i < watch.length; i++) {
+    var s = lastSig[watch[i].code];
+    if (s === 'up') ups += 1; else if (s === 'down') downs += 1;
+    codes.push(watch[i].code);
+    nameByCode[watch[i].code] = watch[i].name || watch[i].code;
+  }
+  var events = await fetchMopsEvents(codes);
+  var evList = [];
+  for (var c in events) { if (Object.prototype.hasOwnProperty.call(events, c)) evList.push(nameByCode[c] || c); }
+  var parts = ['偏多 ' + ups + '／偏空 ' + downs + '（共 ' + watch.length + ' 檔）'];
+  if (evList.length) parts.push('重大訊息：' + evList.slice(0, 4).join('、'));
+  try { CapacitorNotifications.schedule([{ id: hashId('dailybrief'), title: '今日自選股簡報', body: parts.join('｜') + '（點開看分析）' }]); } catch (e) { /* no-op */ }
+  try { CapacitorKV.set('briefFired', today); } catch (e) { /* no-op */ }
+}
+
 // App 端推送設定 → 存進 KV 供排程事件讀取
 addEventListener('saveConfig', function (resolve, reject, args) {
   try {
@@ -114,7 +169,7 @@ addEventListener('saveWatch', function (resolve, reject, args) {
 // 排程事件：盤中檢查每檔是否碰到停損/停利/目標價，碰到就推播
 addEventListener('priceAlerts', async function (resolve, reject) {
   try {
-    if (!inMarketHours()) { resolve(); return; }
+    if (!inMarketHours()) { await maybeDailyBrief(); resolve(); return; }
 
     var config = [];
     try { var raw = CapacitorKV.get('alertConfig'); config = (raw && raw.value) ? JSON.parse(raw.value) : []; } catch (e) { config = []; }
@@ -175,6 +230,19 @@ addEventListener('priceAlerts', async function (resolve, reject) {
             ? ((chgPct >= 0 ? '大漲 +' : '大跌 ') + chgPct.toFixed(1) + '%')
             : ('動能轉' + (sig === 'up' ? '多' : '空'));
           notes.push({ id: hashId('watch:' + wit.code), title: (wit.name || wit.code) + ' 有狀況', body: '現價 ' + (d.price != null ? d.price : '—') + '，' + label + '（點開看完整分析）' });
+        }
+
+        // AI 看法推翻監看：價格觸發 AI 給的推翻價位就提醒（每檔每日去重，key 用 :inv）
+        if (wit.invLevel != null && wit.invDir && d.price != null) {
+          var crossed = (wit.invDir === 'below') ? (d.price <= wit.invLevel) : (d.price >= wit.invLevel);
+          var invKey = wit.code + ':inv';
+          if (crossed && watchFired[invKey] !== today) {
+            watchFired[invKey] = today;
+            var leanTx = wit.lean === 'up' ? '偏多' : (wit.lean === 'down' ? '偏空' : '');
+            notes.push({ id: hashId('inv:' + wit.code), title: (wit.name || wit.code) + '：AI 看法可能被推翻', body: '現價 ' + d.price + '，' + (wit.invDir === 'below' ? '跌破' : '站上') + ' ' + wit.invLevel + (leanTx ? ('（' + leanTx + '看法觸發推翻條件，建議重看）') : '') });
+          } else if (!crossed && watchFired[invKey]) {
+            delete watchFired[invKey];
+          }
         }
       }
       try { CapacitorKV.set('signalState', JSON.stringify(lastSig)); } catch (e) { /* no-op */ }

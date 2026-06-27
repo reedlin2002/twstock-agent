@@ -9,6 +9,7 @@ export const STORAGE_KEYS = {
   recent: 'twstock.recent.v1',
   aiResults: 'twstock.ai.results.v1',
   aiPending: 'twstock.ai.pending.v1',
+  verdicts: 'twstock.ai.verdicts.v1',
 };
 
 // 個人紀錄預設形狀（欄位皆字串，計算時再轉數字）
